@@ -1,0 +1,1 @@
+from crystalpy.version import __version__
