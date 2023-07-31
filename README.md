@@ -7,18 +7,20 @@ The package contains functions for:
 - simulation of the crystal defect (dislocations),
 - and many more...
 
-
 ## Installation
 
-Requirements:
+Anaconda3/Minconda3 is recommended.
 
-- Openbabel 3.1.1 at least. This package can be installed in one of the folowing ways:
-  - recommended if you are using [Anaconda](https://www.anaconda.com/) (or [Miniconda](https://docs.conda.io/en/latest/miniconda.html)) 
-    simply install it using the following command: `conda install -c conda-forge openbabel=3.1.1`, 
-  - if you are using Ubuntu (or some another Debian-like Linux distribution): `sudo apt install openbabel`
-  - then run pip install openbabel>=3.1.1 -L
+Before using crystalpy please install [openbabel](https://openbabel.org/docs/current/UseTheLibrary/Python.html) Python package.
 
-To install crystalpy run the following command:
+We recommend installing openbabel with Anaconda3/Miniconda3:
+
+1. Install openbabel in the selected environment: `conda install -c conda-forge openbabel=3.1.1`.
+2. Install swig: `conda install swig=4.0.2`.
+3. Install openbabel Python package: `pip install --global-option="build_ext" --global-option="-I${CONDA_PREFIX}/include/openbabel3" --global-option="-L/${CONDA_PREFIX}/lib/" openbabel`.
+
+
+Finally, install the crystalpy package with the following command:
 ```
 pip install git+https://github.com/pjarosik/crystalpy.git
 ```

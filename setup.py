@@ -22,7 +22,10 @@ setuptools.setup(
     ],
     install_requires=[
         "numpy>=1.19.3",
-        "scipy>=1.3.1"
+        "scipy>=1.3.1",
+        "openbabel==3.1.1.1",
+        "panel==1.2.0",  # Visualization
+        "vtk==9.2.6"
     ],
     python_requires='>=3.7'
 )
