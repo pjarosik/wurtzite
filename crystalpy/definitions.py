@@ -1,5 +1,8 @@
 from dataclasses import dataclass
 from typing import Iterable, List
+import numpy as np
+import math
+from typing import Tuple, Union, List, Sequence
 
 
 @dataclass(frozen=True)
@@ -7,6 +10,59 @@ class AtomDef:
     atomic_number: int
     symbol: str
     name_en: str
+
+
+@dataclass(frozen=True)
+class UnitCellDef:
+    """
+    Definition of unit cell.
+
+    :param name: name of the unit
+    :param dimensions: cell dimensions, (x, y, z)  # [A]
+    :param angles: alpha, beta gamma [rad]
+    :param atoms: list of the atom symbols
+    :param coordinates: coordinates of the atoms, should have the same length
+        as `atoms`; a fraction of the unit cell size (a, b, c); dimensions:
+        (n atoms, 3)
+    """
+    name: str
+    dimensions: Union[Tuple[float, float, float], np.ndarray]
+    angles: Union[Tuple[float, float, float], np.ndarray]
+    atoms: List[str]
+    coordinates: np.ndarray
+
+    @staticmethod
+    def create(**kwargs):
+        if "atoms_with_coords" in kwargs:
+            if "atoms" in kwargs or "coordinates" in kwargs:
+                raise ValueError("atoms and coordinates properties should not "
+                                 "be provided when atoms_with_coords is "
+                                 "provided.")
+            awc: List[Tuple[str, Tuple[float, float, float]]] = kwargs[
+                "atoms_with_coords"]
+            kwargs.pop("atoms_with_coords")
+            atoms, coords = zip(*awc)
+            kwargs["atoms"] = list(atoms)
+            kwargs["coords"] = np.asrray(coords)
+        return UnitCellDef(**kwargs)
+
+    @property
+    def cartesian_coordinates(self):
+        a, b, c = self.dimensions
+        alpha, beta, gamma = self.angles
+        cos_alpha, sin_alpha = np.cos(alpha), np.sin(alpha)
+        cos_beta, sin_beta = np.cos(beta), np.sin(beta)
+        cos_gamma, sin_gamma = np.cos(gamma), np.sin(gamma)
+
+        projection_matrix = np.array([
+            [a, b * cos_gamma, c * cos_beta],
+            [0, b * sin_gamma,
+             c * (cos_alpha - cos_beta * cos_gamma) / sin_gamma],
+            [0, 0, c * math.sqrt(
+                1.0 + 2.0 * cos_alpha * cos_beta * cos_gamma - cos_alpha ** 2 - cos_beta ** 2 - cos_gamma ** 2) / sin_gamma]
+        ])
+        result = projection_matrix * self.coordinates.T  # (3, n_atoms)
+        return result.T  # (n_atoms, 3)
 
 
 ATOMS = {
@@ -132,9 +188,55 @@ ATOMS = {
 _ATOMS_BY_NUMBER = sorted(list(ATOMS), key=lambda a: a.atomic_number)
 _ATOMS_BY_SYMBOL = dict(((a.symbol, a) for a in ATOMS))
 
+CELLS = {
+    UnitCellDef.create(
+        name="3C_SiC",
+        dimensions=(4.3596, 4.3596, 4.3596),
+        angles=(90., 90., 90.),
+        atoms_with_coords=[
+            ("Si", (0.0, 0.0, 0.0)),
+            ("C",  (1/4, 1/4, 1/4)),
+            ("Si", (1/2, 1/2, 0.0)),
+            ("C",  (3/4, 3/4, 1/4)),
+            ("Si", (1/2, 0.0, 1/2)),
+            ("C",  (3/4, 1/4, 3/4)),
+            ("Si", (0.0, 1/2, 1/2)),
+            ("C",  (1/4, 3/4, 3/4)),
+        ],
+    ),
+    UnitCellDef.create(
+        name="4H_SiC",
+        dimensions=(3.073, 3.073, 10.053),
+        angles=(90.0, 90.0, 120.0),
+        atoms_with_coords=[
+            ("Si", (0.0, 0.0, 0.0)),
+            ("C",  (0.0, 0.0, 3/16)),
+            ("Si", (2/3, 1/3, 1/4)),
+            ("C",  (2/3, 1/3, 7/16)),
+            ("Si", (1/3, 2/3, 1/2)),
+            ("C",  (1/3, 2/3, 11/16)),
+            ("Si", (2/3, 1/3, 3/4)),
+            ("C",  (2/3, 1/3, 15/16)),
+        ]
+    ),
+    UnitCellDef.create(
+        name="B4_GaN",
+        dimensions=(3.180, 3.180, 5.166),
+        angles=(90.0, 90.0, 120.0),
+        atoms_with_coords=[
+            ("N",  (0.0, 0.0, 0.0)),
+            ("Ga", (0.0, 0.0, 3/8)),
+            ("N",  (2/3, 1/3, 1/2)),
+            ("Ga", (2/3, 1/3, 7/8))
+        ]
+    )
+}
+
+_CELLS_BY_NAME = dict(((c.name, c) for c in CELLS))
+
 
 def get_atom_by_number(atomic_number: int) -> AtomDef:
-    return _ATOMS_BY_NUMBER[atomic_number-1]
+    return _ATOMS_BY_NUMBER[atomic_number - 1]
 
 
 def get_atoms_by_numbers(numbers: Iterable[int]):
@@ -149,4 +251,5 @@ def get_atoms_by_symbols(symbols: Iterable[str]) -> List[AtomDef]:
     return [get_atom_by_symbol(s) for s in symbols]
 
 
-
+def get_cell_by_name(name: str) -> UnitCellDef:
+    return _CELLS_BY_NAME[name.strip()]

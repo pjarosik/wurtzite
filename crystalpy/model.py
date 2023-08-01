@@ -1,8 +1,9 @@
+import math
 from dataclasses import dataclass
-from typing import Tuple, Union, List
+from typing import Tuple, Union, List, Sequence
 
 import numpy as np
-from crystalpy.dictionary import get_atoms_by_symbols
+from crystalpy.definitions import get_atoms_by_symbols
 
 
 @dataclass(frozen=True)
@@ -72,32 +73,44 @@ class Crystal:
         for i in range(self.n_bonds):
             yield Bond(id=i, a_id=self.bonds[i, 0], b_id=self.bonds[i, 1])
 
+    def __add__(self, other: Union[Sequence[float, float, float], np.ndarray]):
+        return self.translate(v=other)
 
-def create_crystal(**kwargs):
-    """
-    Factory function for creating crystal.
+    def translate(self, v: Union[Sequence[float, float, float], np.ndarray]):
+        """
+        Moves each atom by a given vector.
+        """
+        v = np.asarray(v).squeeze()
+        if len(v.shape) > 2 or len(v.shape) == 0:
+            raise ValueError("The input should be vector or matrix")
+        elif len(v.shape) == 2:
+            if v.shape != self.coordinates.shape:
+                raise ValueError("The input vector should have the same "
+                                 "dimensions as coordinates matrix.")
+        elif len(v.shape == 1):
+            v = v.reshape(1, -1)
+        return self.coordinates+v
 
-    :param: symbols: a list of symbols to use
-    """
-    if "atomic_number" in kwargs and "symbol" in kwargs:
-        raise ValueError("Exactly one of the following should be provided: "
-                         "atomic_number, symbol.")
-    if "atomic_number" in kwargs:
-        return Crystal(**kwargs)
-    elif "symbol" in kwargs:
-        symbol = kwargs["symbol"]
-        kwargs.pop("symbol")
-        atoms = get_atoms_by_symbols(symbol)
-        numbers = [a.atomic_number for a in atoms]
-        numbers = np.array(numbers)
-        return Crystal(atomic_number=numbers, **kwargs)
-    else:
-        raise ValueError("atomic_number or symbol is missing.")
+    @staticmethod
+    def create(**kwargs):
+        """
+        Factory function for creating crystal.
+
+        :param: symbols: a list of symbols to use
+        """
+        if "atomic_number" in kwargs and "symbol" in kwargs:
+            raise ValueError("Exactly one of the following should be provided: "
+                             "atomic_number, symbol.")
+        if "atomic_number" in kwargs:
+            return Crystal(**kwargs)
+        elif "symbol" in kwargs:
+            symbol = kwargs["symbol"]
+            kwargs.pop("symbol")
+            atoms = get_atoms_by_symbols(symbol)
+            numbers = [a.atomic_number for a in atoms]
+            numbers = np.array(numbers)
+            return Crystal(atomic_number=numbers, **kwargs)
+        else:
+            raise ValueError("atomic_number or symbol is missing.")
 
 
-@dataclass(frozen=True)
-class UnitCellDef:
-    """
-    Definition of unit cell.
-    """
-    pass
