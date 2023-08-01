@@ -151,16 +151,21 @@ class VtkVisualizer:
             self,
             window_size: Tuple[int, int] = (400, 400),
             resolution_per_atom: float = 600000.0,
-            background_color: str = "SlateGray"
+            background_color: str = "SlateGray",
+            n_ticks: int =10,
+            show_axes=True
     ):
         self.geom_pane = None
         self.background_color = background_color
         self.resolution_per_atom = resolution_per_atom
         self.window_size = window_size
+        self.n_ticks = n_ticks
+        self.show_axes = show_axes
 
     def render_crystal(self, crystal: crystalpy.model.Crystal):
         colors = vtk.vtkNamedColors()
         n_atoms = crystal.n_atoms
+        n_bonds = crystal.n_bonds
 
         self.renderer = vtk.vtkRenderer()
         self.renderer.SetBackground(colors.GetColor3d(self.background_color))
@@ -171,9 +176,8 @@ class VtkVisualizer:
         # Convert crystal to vtkPolyData
         moleculeVtk = vtkPolyData()
 
-        # Atom positions:
+        # Atoms:
         points = vtkPoints()
-        bonds = vtk.vtkCellArray()
 
         vdw = vtk.vtkFloatArray()
         vdw.SetNumberOfComponents(3)
@@ -196,17 +200,8 @@ class VtkVisualizer:
             points.InsertNextPoint(atom_pos[0], atom_pos[1], atom_pos[2])
             vdw.InsertNextTuple3(radius, radius, radius)
             atom_color.InsertNextTuple3(r, g, b)
-        # Bonds:
-
-        for bond in crystal.get_bonds():
-            bonds.InsertNextCell(2)
-            # NOTE: assumming that OBMolAtomIter returns the sequence of atoms
-            # according to its Id.
-            bonds.InsertCellPoint(int(bond.a_id))
-            bonds.InsertCellPoint(int(bond.b_id))
 
         moleculeVtk.SetPoints(points)
-        moleculeVtk.SetLines(bonds)
         moleculeVtk.GetPointData().SetVectors(vdw)
         moleculeVtk.GetPointData().SetScalars(atom_color)
         resolution = math.sqrt(self.resolution_per_atom / n_atoms)
@@ -242,36 +237,87 @@ class VtkVisualizer:
         atom.GetProperty().SetSpecularColor(colors.GetColor3d("White"))
         self.renderer.AddActor(atom)
 
-        tube = vtk.vtkTubeFilter()
-        tube.SetInputData(moleculeVtk)
-        tube.SetNumberOfSides(int(resolution))
-        tube.CappingOff()
-        tube.SetRadius(0.05)
-        tube.SetVaryRadius(0)
-        tube.SetRadiusFactor(1)
+        # Bonds:
+        if n_bonds > 0:
+            bonds = vtk.vtkCellArray()
 
-        bondMapper = vtk.vtkPolyDataMapper()
-        bondMapper.SetInputConnection(tube.GetOutputPort(0) )
-        bondMapper.UseLookupTableScalarRangeOff()
-        bondMapper.ScalarVisibilityOff()
-        bondMapper.SetScalarModeToDefault()
+            for bond in crystal.get_bonds():
+                bonds.InsertNextCell(2)
+                # NOTE: assumming that OBMolAtomIter returns the sequence of
+                # atoms according to its Id.
+                bonds.InsertCellPoint(int(bond.a_id))
+                bonds.InsertCellPoint(int(bond.b_id))
 
-        # bond = vtk.vtkLODActor()
-        bond = vtk.vtkActor()
-        bond.SetMapper(bondMapper)
-        bond.GetProperty().SetRepresentationToSurface()
-        bond.GetProperty().SetInterpolationToGouraud()
-        bond.GetProperty().SetAmbient(0.1)
-        bond.GetProperty().SetDiffuse(0.7)
-        bond.GetProperty().SetSpecular(0.5)
-        bond.GetProperty().SetSpecularPower(80)
-        bond.GetProperty().SetSpecularColor(colors.GetColor3d("White"))
-        self.renderer.AddActor(bond)
+            moleculeVtk.SetLines(bonds)
+
+            tube = vtk.vtkTubeFilter()
+            tube.SetInputData(moleculeVtk)
+            tube.SetNumberOfSides(int(resolution))
+            tube.CappingOff()
+            tube.SetRadius(0.05)
+            tube.SetVaryRadius(0)
+            tube.SetRadiusFactor(1)
+
+            bondMapper = vtk.vtkPolyDataMapper()
+            bondMapper.SetInputConnection(tube.GetOutputPort(0) )
+            bondMapper.UseLookupTableScalarRangeOff()
+            bondMapper.ScalarVisibilityOff()
+            bondMapper.SetScalarModeToDefault()
+
+            bond = vtk.vtkActor()
+            bond.SetMapper(bondMapper)
+            bond.GetProperty().SetRepresentationToSurface()
+            bond.GetProperty().SetInterpolationToGouraud()
+            bond.GetProperty().SetAmbient(0.1)
+            bond.GetProperty().SetDiffuse(0.7)
+            bond.GetProperty().SetSpecular(0.5)
+            bond.GetProperty().SetSpecularPower(80)
+            bond.GetProperty().SetSpecularColor(colors.GetColor3d("White"))
+            self.renderer.AddActor(bond)
+
+        xs = crystal.coordinates[:, 0]
+        ys = crystal.coordinates[:, 1]
+        zs = crystal.coordinates[:, 2]
+        x_min, x_max = np.min(xs), np.max(xs)
+        y_min, y_max = np.min(ys), np.max(ys)
+        z_min, z_max = np.min(zs), np.min(zs)
+
+        def get_ticker(minimum, maximum, label):
+            ticks = np.linspace(x_min, x_max, self.n_ticks)
+            labels = [f"{value:.1f}" for value in ticks]
+            labels[-1] = f"{label} {labels[-1]}"
+            # NOTE: it is important here to return list
+            # (and not the numpy array object)
+            return dict(ticks=ticks.tolist(), labels=labels)
+
+        xticker = get_ticker(x_min, x_max, label="OX")
+        yticker = get_ticker(y_min, y_max, label="OY")
+        zticker = get_ticker(z_min, z_max, label="OZ")
+        origin = (
+            np.min(xticker["ticks"]),
+            np.min(yticker["ticks"]),
+            np.min(zticker["ticks"])
+        )
+        if self.show_axes:
+            axes = dict(
+                xticker=xticker,
+                yticker=yticker,
+                zticker=zticker,
+                show_grid=True,
+                origin=origin,
+                grid_opacity=0.3,
+                axes_opacity=0.3
+            )
+        else:
+            axes = None
+
         self.geom_pane = pn.pane.VTK(
             self.renderWindow,
             width=self.window_size[0],
             height=self.window_size[1],
-            orientation_widget=True
+            orientation_widget=True,
+            axes=axes,
+            enable_keybindings=True
         )
         return self.geom_pane
 

@@ -38,7 +38,7 @@ def create_lattice(
     x_cell_coords = (np.arange(nx)-nx/2)*cx
     y_cell_coords = (np.arange(ny)-ny/2)*cy
     z_cell_coords = (np.arange(nz)-nz/2)*cz
-    x_cell_coords = x_cell_coords.reshpae(-1, 1, 1, 1) # (nx, ny, nz, natoms)
+    x_cell_coords = x_cell_coords.reshape(-1, 1, 1, 1) # (nx, ny, nz, natoms)
     y_cell_coords = y_cell_coords.reshape(1, -1, 1, 1)  # (nx, ny, nz, natoms)
     z_cell_coords = z_cell_coords.reshape(1, 1, -1, 1)  # (nx, ny, nz, natoms)
     # Move coordinates
@@ -50,7 +50,7 @@ def create_lattice(
     symbol = symbol*(nx*ny*nz)
     crystal = Crystal.create(
         symbol=symbol,
-        bonds=[],
+        bonds=np.asarray([]),
         coordinates=coordinates
     )
     if set_bonds:

@@ -12,7 +12,7 @@ def convert_from_openbabel(molecule: openbabel.OBMol) -> Crystal:
     atomic_numbers = []
     coordinates = []
     bonds = []
-    for atom in openbabel.OBAtomAtomIter(molecule):
+    for atom in openbabel.OBMolAtomIter(molecule):
         atomic_numbers.append(atom.GetAtomicNum())
         vec = atom.GetVector()
         coordinates.append(
@@ -34,7 +34,7 @@ def convert_to_openbabel(crystal: Crystal) -> openbabel.OBMol:
     molecule = openbabel.OBMol()
     for atom in crystal.get_atoms():
         ob_atom = molecule.NewAtom()
-        ob_atom.SetAtomicNumber(atom.atomic_number)
+        ob_atom.SetAtomicNum(int(atom.atomic_number))
         x, y, z = atom.coordinates
         ob_atom.SetVector(x, y, z)
     for bond in crystal.get_bonds():

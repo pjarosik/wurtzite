@@ -43,7 +43,7 @@ class UnitCellDef:
             kwargs.pop("atoms_with_coords")
             atoms, coords = zip(*awc)
             kwargs["atoms"] = list(atoms)
-            kwargs["coords"] = np.asrray(coords)
+            kwargs["coordinates"] = np.asarray(coords)
         return UnitCellDef(**kwargs)
 
     @property
@@ -56,12 +56,10 @@ class UnitCellDef:
 
         projection_matrix = np.array([
             [a, b * cos_gamma, c * cos_beta],
-            [0, b * sin_gamma,
-             c * (cos_alpha - cos_beta * cos_gamma) / sin_gamma],
-            [0, 0, c * math.sqrt(
-                1.0 + 2.0 * cos_alpha * cos_beta * cos_gamma - cos_alpha ** 2 - cos_beta ** 2 - cos_gamma ** 2) / sin_gamma]
+            [0, b * sin_gamma, c * (cos_alpha - cos_beta * cos_gamma) / sin_gamma],
+            [0, 0, c*math.sqrt(1.0 + 2.0*cos_alpha*cos_beta*cos_gamma - cos_alpha**2 - cos_beta**2 - cos_gamma**2) / sin_gamma]
         ])
-        result = projection_matrix * self.coordinates.T  # (3, n_atoms)
+        result = projection_matrix.dot(self.coordinates.T)  # (3, n_atoms)
         return result.T  # (n_atoms, 3)
 
 
@@ -188,11 +186,11 @@ ATOMS = {
 _ATOMS_BY_NUMBER = sorted(list(ATOMS), key=lambda a: a.atomic_number)
 _ATOMS_BY_SYMBOL = dict(((a.symbol, a) for a in ATOMS))
 
-CELLS = {
+CELLS = [
     UnitCellDef.create(
         name="3C_SiC",
         dimensions=(4.3596, 4.3596, 4.3596),
-        angles=(90., 90., 90.),
+        angles=np.array((90., 90., 90.))*np.pi/180,
         atoms_with_coords=[
             ("Si", (0.0, 0.0, 0.0)),
             ("C",  (1/4, 1/4, 1/4)),
@@ -207,7 +205,7 @@ CELLS = {
     UnitCellDef.create(
         name="4H_SiC",
         dimensions=(3.073, 3.073, 10.053),
-        angles=(90.0, 90.0, 120.0),
+        angles=np.array((90.0, 90.0, 120.0))*np.pi/180,
         atoms_with_coords=[
             ("Si", (0.0, 0.0, 0.0)),
             ("C",  (0.0, 0.0, 3/16)),
@@ -222,7 +220,7 @@ CELLS = {
     UnitCellDef.create(
         name="B4_GaN",
         dimensions=(3.180, 3.180, 5.166),
-        angles=(90.0, 90.0, 120.0),
+        angles=np.array((90.0, 90.0, 120.0))*np.pi/180,
         atoms_with_coords=[
             ("N",  (0.0, 0.0, 0.0)),
             ("Ga", (0.0, 0.0, 3/8)),
@@ -230,7 +228,7 @@ CELLS = {
             ("Ga", (2/3, 1/3, 7/8))
         ]
     )
-}
+]
 
 _CELLS_BY_NAME = dict(((c.name, c) for c in CELLS))
 

@@ -73,10 +73,10 @@ class Crystal:
         for i in range(self.n_bonds):
             yield Bond(id=i, a_id=self.bonds[i, 0], b_id=self.bonds[i, 1])
 
-    def __add__(self, other: Union[Sequence[float, float, float], np.ndarray]):
+    def __add__(self, other: Union[Sequence[float], np.ndarray]):
         return self.translate(v=other)
 
-    def translate(self, v: Union[Sequence[float, float, float], np.ndarray]):
+    def translate(self, v: Union[Sequence[float], np.ndarray]):
         """
         Moves each atom by a given vector.
         """
