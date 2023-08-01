@@ -1,6 +1,8 @@
 """
 I/O functions, to support the most popular chemical formats.
 """
+import os.path
+
 import numpy as np
 from crystalpy.model import Crystal
 from openbabel import openbabel
@@ -41,10 +43,27 @@ def convert_to_openbabel(crystal: Crystal) -> openbabel.OBMol:
     return molecule
 
 
-def save(file, crystal: Crystal):
-    # TODO
-    pass
+def save(file: str, crystal: Crystal):
+    """
+    Saves crystal to the given file.
+    The output file format will be determined based on the file extensions.
+    """
+    molecule: openbabel.OBMol = convert_to_openbabel(crystal)
+    conversion = openbabel.OBConversion()
+    output_format = os.path.splitext(file)[1]
+    conversion.SetOutFormat(output_format)
+    return conversion.WriteFile(molecule, file)
 
 
-def load(file) -> Crystal:
-    pass
+def load(file: str) -> Crystal:
+    """
+    Reads crystal from the given input file.
+    The input file format will be automatically determined based on the
+    file extensions.
+    """
+    input_format = os.path.splitext(file)[1]
+    conversion = openbabel.OBConversion()
+    conversion.SetInFormat(input_format)
+    molecule = openbabel.OBMol()
+    conversion.ReadFile(molecule, file)
+    return convert_from_openbabel(molecule)
