@@ -35,10 +35,10 @@ def create_lattice(
     coordinates = np.repeat(coordinates[np.newaxis, ...], nx, axis=0)
     # (nx, ny, nz, natoms, 3)
     # Coordinate (0,0,0) of each cell.
-    x_cell_coords = (np.arange(nx)-nx/2)*cx
-    y_cell_coords = (np.arange(ny)-ny/2)*cy
-    z_cell_coords = (np.arange(nz)-nz/2)*cz
-    x_cell_coords = x_cell_coords.reshape(-1, 1, 1, 1) # (nx, ny, nz, natoms)
+    x_cell_coords = (np.arange(nx)-nx//2)*cx
+    y_cell_coords = (np.arange(ny)-ny//2)*cy
+    z_cell_coords = (np.arange(nz)-nz//2)*cz
+    x_cell_coords = x_cell_coords.reshape(-1, 1, 1, 1)  # (nx, ny, nz, natoms)
     y_cell_coords = y_cell_coords.reshape(1, -1, 1, 1)  # (nx, ny, nz, natoms)
     z_cell_coords = z_cell_coords.reshape(1, 1, -1, 1)  # (nx, ny, nz, natoms)
     # Move coordinates

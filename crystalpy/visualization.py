@@ -280,10 +280,10 @@ class VtkVisualizer:
         zs = crystal.coordinates[:, 2]
         x_min, x_max = np.min(xs), np.max(xs)
         y_min, y_max = np.min(ys), np.max(ys)
-        z_min, z_max = np.min(zs), np.min(zs)
+        z_min, z_max = np.min(zs), np.max(zs)
 
         def get_ticker(minimum, maximum, label):
-            ticks = np.linspace(x_min, x_max, self.n_ticks)
+            ticks = np.linspace(minimum, maximum, self.n_ticks)
             labels = [f"{value:.1f}" for value in ticks]
             labels[-1] = f"{label} {labels[-1]}"
             # NOTE: it is important here to return list
