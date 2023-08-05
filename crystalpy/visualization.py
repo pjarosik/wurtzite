@@ -152,7 +152,7 @@ class VtkVisualizer:
             window_size: Tuple[int, int] = (400, 400),
             resolution_per_atom: float = 600000.0,
             background_color: str = "SlateGray",
-            n_ticks: int =10,
+            n_ticks: int = 10,
             show_axes=True
     ):
         self.geom_pane = None
@@ -162,10 +162,10 @@ class VtkVisualizer:
         self.n_ticks = n_ticks
         self.show_axes = show_axes
 
-    def render_crystal(self, crystal: crystalpy.model.Crystal):
+    def render_molecule(self, molecule: crystalpy.model.Molecule):
         colors = vtk.vtkNamedColors()
-        n_atoms = crystal.n_atoms
-        n_bonds = crystal.n_bonds
+        n_atoms = molecule.n_atoms
+        n_bonds = molecule.n_bonds
 
         self.renderer = vtk.vtkRenderer()
         self.renderer.SetBackground(colors.GetColor3d(self.background_color))
@@ -189,7 +189,7 @@ class VtkVisualizer:
         atom_color.Allocate(3 * n_atoms)
         atom_color.SetName("rgb_colors")
 
-        for atom in crystal.get_atoms():
+        for atom in molecule.get_atoms():
             atom_pos = atom.coordinates
             atomic_number = atom.atomic_number
             radius = openbabel.GetVdwRad(int(atomic_number))
@@ -241,7 +241,7 @@ class VtkVisualizer:
         if n_bonds > 0:
             bonds = vtk.vtkCellArray()
 
-            for bond in crystal.get_bonds():
+            for bond in molecule.get_bonds():
                 bonds.InsertNextCell(2)
                 # NOTE: assumming that OBMolAtomIter returns the sequence of
                 # atoms according to its Id.
@@ -275,9 +275,9 @@ class VtkVisualizer:
             bond.GetProperty().SetSpecularColor(colors.GetColor3d("White"))
             self.renderer.AddActor(bond)
 
-        xs = crystal.coordinates[:, 0]
-        ys = crystal.coordinates[:, 1]
-        zs = crystal.coordinates[:, 2]
+        xs = molecule.coordinates[:, 0]
+        ys = molecule.coordinates[:, 1]
+        zs = molecule.coordinates[:, 2]
         x_min, x_max = np.min(xs), np.max(xs)
         y_min, y_max = np.min(ys), np.max(ys)
         z_min, z_max = np.min(zs), np.max(zs)
@@ -322,7 +322,6 @@ class VtkVisualizer:
         return self.geom_pane
 
 
-def render(crystal: Crystal, **kwargs):
+def render(molecule: crystalpy.model.Molecule, **kwargs):
     visualizer = VtkVisualizer(**kwargs)
-    return visualizer.render_crystal(crystal)
-    pass
+    return visualizer.render_molecule(molecule)
