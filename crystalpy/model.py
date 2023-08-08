@@ -1,5 +1,6 @@
 import math
 from dataclasses import dataclass
+import dataclasses
 from typing import Tuple, Union, List, Sequence
 
 import numpy as np
@@ -83,7 +84,11 @@ class Molecule:
                                  "dimensions as coordinates matrix.")
         elif len(v.shape == 1):
             v = v.reshape(1, -1)
-        return self.coordinates + v
+        new_coords = self.coordinates + v
+        return dataclasses.replace(
+            self,
+            coordinates=new_coords
+        )
 
     @staticmethod
     def _create(clazz, **kwargs):
