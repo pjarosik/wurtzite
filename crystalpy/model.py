@@ -1,9 +1,10 @@
 import math
 from dataclasses import dataclass
+import dataclasses
 from typing import Tuple, Union, List, Sequence
 
 import numpy as np
-from crystalpy.definitions import get_atoms_by_symbols
+from crystalpy.definitions import get_atoms_by_symbols, UnitCellDef
 
 
 @dataclass(frozen=True)
@@ -28,30 +29,24 @@ class Bond:
 
 
 @dataclass(frozen=True)
-class Crystal:
+class Molecule:
     """
-    An instance of crystal structure.
-    The crystal structure contains information about the physical arrangement
-    of atoms, types of atoms (currently by atomic number) and bonds (the
-    complete graph).
+    An instance Molecule.
+    The molecule contains information about the physical arrangement
+    of atoms (coordinates), types of atoms (currently by atomic number)
+    and bonds (the complete graph).
 
     The distances are assumed to be in Angstroms [A].
 
     :param atomic_number: a list of atomic numbers  (number of atoms, )
     :param coordinates: a nd-array with dimensions: (number of atoms, 3), where
         3 are the coordinates (x, y, z) of i-th atom. [A]
-    :param bonds: a list of connect atom pairs (a, b), where
-        a and b are atom indices array (number of bonds, 2)
-    """
+    :param bonds: a list of connect atom pairs (a, b), where a and b are atom
+        indices array (number of bonds, 2)
+        """
     atomic_number: np.ndarray
     bonds: np.ndarray
     coordinates: np.ndarray
-
-    def __post_init__(self):
-        if not (self.atomic_number.shape[0] == self.coordinates.shape[0]):
-            raise ValueError("Atomic number and coordinate arrays "
-                             "should have the same size for "
-                             "for the first dimension.")
 
     @property
     def n_atoms(self):
@@ -89,10 +84,14 @@ class Crystal:
                                  "dimensions as coordinates matrix.")
         elif len(v.shape == 1):
             v = v.reshape(1, -1)
-        return self.coordinates+v
+        new_coords = self.coordinates + v
+        return dataclasses.replace(
+            self,
+            coordinates=new_coords
+        )
 
     @staticmethod
-    def create(**kwargs):
+    def _create(clazz, **kwargs):
         """
         Factory function for creating crystal.
 
@@ -102,15 +101,45 @@ class Crystal:
             raise ValueError("Exactly one of the following should be provided: "
                              "atomic_number, symbol.")
         if "atomic_number" in kwargs:
-            return Crystal(**kwargs)
+            return clazz(**kwargs)
         elif "symbol" in kwargs:
             symbol = kwargs["symbol"]
             kwargs.pop("symbol")
             atoms = get_atoms_by_symbols(symbol)
             numbers = [a.atomic_number for a in atoms]
             numbers = np.array(numbers)
-            return Crystal(atomic_number=numbers, **kwargs)
+            return clazz(atomic_number=numbers, **kwargs)
         else:
             raise ValueError("atomic_number or symbol is missing.")
+
+    @staticmethod
+    def create(**kwargs):
+        return Molecule._create(Molecule, **kwargs)
+
+
+@dataclass(frozen=True)
+class Crystal(Molecule):
+    """
+    An instance of crystal.
+
+    The crystal is a molecule with defined CrystalCell.
+
+    :param atomic_number: a list of atomic numbers  (number of atoms, )
+    :param coordinates: a nd-array with dimensions: (number of atoms, 3), where
+        3 are the coordinates (x, y, z) of i-th atom. [A]
+    :param bonds: a list of connect atom pairs (a, b), where
+        a and b are atom indices array (number of bonds, 2)
+    """
+    cell: UnitCellDef
+
+    @staticmethod
+    def create(**kwargs):
+        return Molecule._create(clazz=Crystal, **kwargs)
+
+    def __post_init__(self):
+        if not (self.atomic_number.shape[0] == self.coordinates.shape[0]):
+            raise ValueError("Atomic number and coordinate arrays "
+                             "should have the same size for "
+                             "for the first dimension.")
 
 

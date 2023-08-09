@@ -1,9 +1,11 @@
 """
 A module with utilities to generate crystalpy Crystals.
 """
+import dataclasses
+
 import numpy as np
 
-from crystalpy.model import Crystal
+from crystalpy.model import Crystal, Molecule
 from crystalpy.definitions import UnitCellDef, get_cell_by_name
 from crystalpy.io import convert_from_openbabel, convert_to_openbabel
 from typing import Tuple, Union
@@ -51,18 +53,23 @@ def create_lattice(
     crystal = Crystal.create(
         symbol=symbol,
         bonds=np.asarray([]),
-        coordinates=coordinates
+        coordinates=coordinates,
+        cell=cell
     )
     if set_bonds:
-        crystal = create_bonds(crystal)
+        bonds = create_bonds(crystal)
+        crystal = dataclasses.replace(
+            crystal,
+            bonds=bonds
+        )
     return crystal
 
 
-def create_bonds(input_crystal: Crystal) -> Crystal:
-    molecule = convert_to_openbabel(input_crystal)
+def create_bonds(input_molecule: Molecule) -> np.ndarray:
+    molecule = convert_to_openbabel(input_molecule)
     molecule.ConnectTheDots()
     molecule.PerceiveBondOrders()
-    crystal = convert_from_openbabel(molecule)
+    output_molecule = convert_from_openbabel(molecule)
     molecule.Clear()
-    return crystal
+    return output_molecule.bonds
 

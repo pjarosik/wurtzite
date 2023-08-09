@@ -5,11 +5,11 @@ import os.path
 
 import numpy as np
 import sys
-from crystalpy.model import Crystal
+from crystalpy.model import Molecule
 from openbabel import openbabel
 
 
-def convert_from_openbabel(molecule: openbabel.OBMol) -> Crystal:
+def convert_from_openbabel(molecule: openbabel.OBMol) -> Molecule:
     atomic_numbers = []
     coordinates = []
     bonds = []
@@ -28,14 +28,14 @@ def convert_from_openbabel(molecule: openbabel.OBMol) -> Crystal:
         bonds.append(
             [bond.GetBeginAtom().GetId(), bond.GetEndAtom().GetId()]
         )
-    return Crystal.create(
+    return Molecule.create(
         atomic_number=np.asarray(atomic_numbers),
         bonds=np.asarray(bonds),
         coordinates=np.asarray(coordinates)
     )
 
 
-def convert_to_openbabel(crystal: Crystal) -> openbabel.OBMol:
+def convert_to_openbabel(crystal: Molecule) -> openbabel.OBMol:
     molecule = openbabel.OBMol()
     for atom in crystal.get_atoms():
         ob_atom = molecule.NewAtom()
@@ -48,7 +48,7 @@ def convert_to_openbabel(crystal: Crystal) -> openbabel.OBMol:
     return molecule
 
 
-def save(file: str, crystal: Crystal):
+def save(file: str, crystal: Molecule):
     """
     Saves crystal to the given file.
     The output file format will be determined based on the file extensions.
@@ -60,7 +60,7 @@ def save(file: str, crystal: Crystal):
     return conversion.WriteFile(molecule, file)
 
 
-def load(file: str) -> Crystal:
+def load(file: str) -> Molecule:
     """
     Reads crystal from the given input file.
     The input file format will be automatically determined based on the

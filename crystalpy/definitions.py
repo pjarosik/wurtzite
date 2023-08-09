@@ -47,7 +47,13 @@ class UnitCellDef:
         return UnitCellDef(**kwargs)
 
     @property
-    def cartesian_coordinates(self):
+    def miller_to_cartesian(self) -> np.ndarray:
+        """
+        Returns from miller to cartesian coordinates transform (matrix).
+
+        The returned transform allows to convert indices exposed in the
+        miller indices for this cell to the cartesian coordinates.
+        """
         a, b, c = self.dimensions
         alpha, beta, gamma = self.angles
         cos_alpha, sin_alpha = np.cos(alpha), np.sin(alpha)
@@ -56,11 +62,33 @@ class UnitCellDef:
 
         projection_matrix = np.array([
             [a, b * cos_gamma, c * cos_beta],
-            [0, b * sin_gamma, c * (cos_alpha - cos_beta * cos_gamma) / sin_gamma],
-            [0, 0, c*math.sqrt(1.0 + 2.0*cos_alpha*cos_beta*cos_gamma - cos_alpha**2 - cos_beta**2 - cos_gamma**2) / sin_gamma]
+            [0, b * sin_gamma,
+             c * (cos_alpha - cos_beta * cos_gamma) / sin_gamma],
+            [0, 0, c * math.sqrt(1.0 + 2.0 * cos_alpha * cos_beta * cos_gamma - cos_alpha ** 2 - cos_beta ** 2 - cos_gamma ** 2) / sin_gamma]
         ])
+        return projection_matrix
+
+    @property
+    def cartesian_to_miller(self) -> np.ndarray:
+        return np.linalg.inv(self.miller_to_cartesian)
+
+    @property
+    def cartesian_coordinates(self) -> np.ndarray:
+        projection_matrix = self.miller_to_cartesian
         result = projection_matrix.dot(self.coordinates.T)  # (3, n_atoms)
         return result.T  # (n_atoms, 3)
+
+    def to_cartesian_indices(self, miller_indices: np.ndarray) -> np.ndarray:
+        """
+        Converts input miller indices to cartesian indices.
+
+        :param miller_indices: miller indices to convert from; an array
+            with dimensions (n_vectors, 3)
+        :return: the input indices in the cartesian system (n_vectors, 3)
+        """
+        miller_indices = np.asarray(miller_indices)
+        return self.miller_to_cartesian.dot(miller_indices.T).T
+
 
 
 ATOMS = {
