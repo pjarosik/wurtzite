@@ -172,6 +172,7 @@ class VtkVisualizer:
         self.renderWindow = vtk.vtkRenderWindow()
         self.renderWindow.AddRenderer(self.renderer)
         self.renderWindow.SetSize(*self.window_size)
+        self.renderWindow.SetOffScreenRendering(1)
 
         # Convert crystal to vtkPolyData
         moleculeVtk = vtkPolyData()
