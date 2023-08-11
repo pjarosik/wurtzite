@@ -167,16 +167,16 @@ def displace_love(
 
     def f(u, x):
         nonlocal be, bz
-        current_u = x+u
-        current_u = current_u.reshape(1, -1)
-        return u-love_function(current_u, be, bz).squeeze()
+        current_x = x+u
+        current_x = current_x.reshape(1, -1)
+        return u-love_function(current_x, be, bz).squeeze()
 
     def jacobian(u, x):
         nonlocal be, bz
         # TODO czy wlasciwy jacobian we wlasciwym kierunku?
-        current_u = x + u
-        current_u = current_u.reshape(1, -1)
-        return BETA_ONES-beta_function(current_u, be, bz).squeeze()
+        current_x = x + u
+        current_x = current_x.reshape(1, -1)
+        return BETA_ONES-beta_function(current_x, be, bz).squeeze()
 
     result_u = np.zeros((crystal.n_atoms, 3))
 
