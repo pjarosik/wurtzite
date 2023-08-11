@@ -5,6 +5,7 @@ notebooks.
 import math
 from typing import Tuple
 
+import matplotlib
 import panel as pn
 import vtk
 import numpy as np
@@ -326,3 +327,20 @@ class VtkVisualizer:
 def render(molecule: crystalpy.model.Molecule, **kwargs):
     visualizer = VtkVisualizer(**kwargs)
     return visualizer.render_molecule(molecule)
+
+
+def vectors_to_rgb(vectors):
+    """Credits: https://stackoverflow.com/questions/19576495/color-matplotlib-quiver-field-according-to-magnitude-and-direction"""
+    angles = np.arctan2(vectors[..., 1], vectors[..., 0])
+    lengths = np.sqrt(np.square(vectors[..., 1]) + np.square(vectors[..., 0]))
+    max_abs = np.max(lengths)
+
+    # normalize angle
+    result = []
+    for angle, length in zip(angles, lengths):
+        angle = angle%(2*np.pi)
+        if angle < 0:
+            angle += 2 * np.pi
+        color = matplotlib.colors.hsv_to_rgb((angle/2/np.pi, length/max_abs, length/max_abs))
+        result.append(color)
+    return np.asarray(result)
