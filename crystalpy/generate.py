@@ -27,28 +27,19 @@ def create_lattice(
     """
     if isinstance(cell, str):
         cell = get_cell_by_name(cell)
-    coordinates = cell.cartesian_coordinates
-    symbol = cell.atoms
-    #
+
     nx, ny, nz = dimensions
-    cx, cy, cz = cell.dimensions  # dimensions of a single cell
-    coordinates = np.repeat(coordinates[np.newaxis, ...], nz, axis=0)
-    coordinates = np.repeat(coordinates[np.newaxis, ...], ny, axis=0)
-    coordinates = np.repeat(coordinates[np.newaxis, ...], nx, axis=0)
-    # (nx, ny, nz, natoms, 3)
-    # Coordinate (0,0,0) of each cell.
-    x_cell_coords = (np.arange(nx)-nx//2)*cx
-    y_cell_coords = (np.arange(ny)-ny//2)*cy
-    z_cell_coords = (np.arange(nz)-nz//2)*cz
-    x_cell_coords = x_cell_coords.reshape(-1, 1, 1, 1)  # (nx, ny, nz, natoms)
-    y_cell_coords = y_cell_coords.reshape(1, -1, 1, 1)  # (nx, ny, nz, natoms)
-    z_cell_coords = z_cell_coords.reshape(1, 1, -1, 1)  # (nx, ny, nz, natoms)
-    # Move coordinates
-    coordinates[:, :, :, :, 0] += x_cell_coords
-    coordinates[:, :, :, :, 1] += y_cell_coords
-    coordinates[:, :, :, :, 2] += z_cell_coords
-    coordinates = coordinates.reshape(-1, 3)
-    # Symbols:
+
+    # Generate lattice in the cell coordinates
+    p = np.array(np.meshgrid(*[range(d) for d in dimensions], indexing="ij"))
+    p = p.T
+    p = p.reshape((-1, 1, 3))
+    c = cell.coordinates.reshape((1, -1, 3))
+    atom_coords_cell = p + c  # (n cells, n atoms per cell, 3)
+    atom_coords_cell = atom_coords_cell.reshape(-1, 3)  # (n atoms, 3)
+    # Get cartesian coordinates
+    coordinates = cell.miller_to_cartesian.dot(atom_coords_cell.T).T
+    symbol = cell.atoms
     symbol = symbol*(nx*ny*nz)
     crystal = Crystal.create(
         symbol=symbol,
