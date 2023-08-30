@@ -5,7 +5,7 @@ import os.path
 
 import numpy as np
 import sys
-from crystalpy.model import Molecule
+from wurtzite.model import Molecule
 from openbabel import openbabel
 
 

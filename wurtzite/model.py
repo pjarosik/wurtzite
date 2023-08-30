@@ -4,7 +4,7 @@ import dataclasses
 from typing import Tuple, Union, List, Sequence
 
 import numpy as np
-from crystalpy.definitions import get_atoms_by_symbols, UnitCellDef
+from wurtzite.definitions import get_atoms_by_symbols, UnitCellDef
 
 
 @dataclass(frozen=True)

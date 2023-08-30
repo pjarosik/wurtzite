@@ -1,13 +1,13 @@
 """
-A module with utilities to generate crystalpy Crystals.
+A module with utilities to generate Crystals.
 """
 import dataclasses
 
 import numpy as np
 
-from crystalpy.model import Crystal, Molecule
-from crystalpy.definitions import UnitCellDef, get_cell_by_name
-from crystalpy.io import convert_from_openbabel, convert_to_openbabel
+from wurtzite.model import Crystal, Molecule
+from wurtzite.definitions import UnitCellDef, get_cell_by_name
+from wurtzite.io import convert_from_openbabel, convert_to_openbabel
 from typing import Tuple, Union
 
 

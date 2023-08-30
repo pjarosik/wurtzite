@@ -14,8 +14,8 @@ from openbabel import openbabel
 from vtkmodules.vtkCommonCore import vtkPoints
 from vtkmodules.vtkCommonDataModel import vtkPolyData
 
-import crystalpy.model
-from crystalpy.model import Crystal
+import wurtzite.model
+from wurtzite.model import Crystal
 
 pn.extension("vtk")
 
@@ -163,7 +163,7 @@ class VtkVisualizer:
         self.n_ticks = n_ticks
         self.show_axes = show_axes
 
-    def render_molecule(self, molecule: crystalpy.model.Molecule):
+    def render_molecule(self, molecule: wurtzite.model.Molecule):
         colors = vtk.vtkNamedColors()
         n_atoms = molecule.n_atoms
         n_bonds = molecule.n_bonds
@@ -324,7 +324,7 @@ class VtkVisualizer:
         return self.geom_pane
 
 
-def render(molecule: crystalpy.model.Molecule, **kwargs):
+def render(molecule: wurtzite.model.Molecule, **kwargs):
     visualizer = VtkVisualizer(**kwargs)
     return visualizer.render_molecule(molecule)
 

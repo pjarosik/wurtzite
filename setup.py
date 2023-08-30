@@ -1,12 +1,12 @@
 import setuptools
 
 version_namespace = {}
-with open("crystalpy/version.py") as f:
+with open("wurtzite/version.py") as f:
     exec(f.read(), version_namespace)
 
 
 setuptools.setup(
-    name="crystalpy",
+    name="wurtzite",
     version=version_namespace["__version__"],
     author="Piotr Jarosik",
     author_email="pjarosik@ippt.pan.pl",

@@ -6,9 +6,9 @@ from typing import Tuple, Union, Sequence
 import numpy as np
 import scipy.optimize
 
-from crystalpy.definitions import UnitCellDef
-from crystalpy.model import Crystal
-from crystalpy.utils import is_vector
+from wurtzite.definitions import UnitCellDef
+from wurtzite.model import Crystal
+from wurtzite.utils import is_vector
 
 
 # radius of inmobile ring relative to which the atoms in the core move up
