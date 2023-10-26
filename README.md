@@ -22,5 +22,5 @@ We recommend installing openbabel with Anaconda3/Miniconda3:
 
 Finally, install the crystalpy package with the following command:
 ```
-pip install git+https://github.com/pjarosik/crystalpy.git
+pip install git+https://github.com/pjarosik/wurtzite.git
 ```
