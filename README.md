@@ -1,4 +1,4 @@
-# crystalpy
+# wurtzite
 Python package with software for crystallography. 
 
 The package contains functions for:
