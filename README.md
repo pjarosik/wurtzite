@@ -24,3 +24,14 @@ Finally, install the crystalpy package with the following command:
 ```
 pip install git+https://github.com/pjarosik/wurtzite.git
 ```
+
+## Examples
+
+Visit the `examples` directory to see how to:
+
+1. Visualize crystal structure in the Jupyter Notebook:
+![](docs/unit_cell_3c_sic.png)
+![](docs/unit_cell_4h_sic.png)
+
+2. How to perform simulate placement of dislocation core:
+![](docs/lattice_displacement.png)
