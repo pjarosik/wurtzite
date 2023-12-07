@@ -35,3 +35,9 @@ Visit the `examples` directory to see how to:
 
 2. How to perform simulate placement of dislocation core:
 ![](docs/lattice_displacement.png)
+
+## Acknowledgements
+
+This work was funded by Institute of Fundamental Technological Research, Polish Academy of Sciences. 
+![](docs/logo-ippt.png)
+
