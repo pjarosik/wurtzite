@@ -64,3 +64,9 @@ def create_bonds(input_molecule: Molecule) -> np.ndarray:
     molecule.Clear()
     return output_molecule.bonds
 
+
+def update_bonds(input_molecule: Molecule) -> np.ndarray:
+    input_molecule = dataclasses.replace(input_molecule, bonds=np.asarray([]))
+    new_bonds = create_bonds(input_molecule)
+    return dataclasses.replace(input_molecule, bonds=new_bonds)
+
