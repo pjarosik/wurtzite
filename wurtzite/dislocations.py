@@ -196,6 +196,8 @@ def displace_love(
                             f"root finder message: {result.message}")
         else:
             result_u[i] = result.x
+    # Move to the previous system 
+    result_u = rt_inv.dot(result_u.T).T
     return result_u
 
 
