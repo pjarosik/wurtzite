@@ -6,6 +6,8 @@ import math
 from typing import Tuple
 
 import matplotlib
+import matplotlib.pyplot as plt
+import matplotlib.lines
 import panel as pn
 import vtk
 import numpy as np
@@ -37,8 +39,8 @@ _ATOM_COLORS = [
     0.54, 1.00, 0.00,
     0.75, 0.65, 0.65,
     0.50, 0.60, 0.60,
-    1.00, 0.50, 0.00,
-    0.70, 0.70, 0.00,
+    1.00, 1.00, 0.00,
+    1.00, 1.00, 0.00,
     0.12, 0.94, 0.12,
     0.50, 0.82, 0.89,
     0.56, 0.25, 0.83,
@@ -144,6 +146,10 @@ _ATOM_COLORS = [
 ]
 _ATOM_COLORS = np.asarray(_ATOM_COLORS)
 _ATOM_COLORS = _ATOM_COLORS.reshape(-1, 3)
+
+
+def get_atom_color_rgb(nr) -> Tuple[float, float, float]:
+    return _ATOM_COLORS[nr-1]
 
 
 class VtkVisualizer:
@@ -344,3 +350,102 @@ def vectors_to_rgb(vectors):
         color = matplotlib.colors.hsv_to_rgb((angle/2/np.pi, length/max_abs, length/max_abs))
         result.append(color)
     return np.asarray(result)
+
+
+
+def plot_atoms_2d(lattice, offset=5, figsize=None, xlim=None, ylim=None, xlabel=None, ylabel=None): 
+    """
+    Display the lattice on the 2D plane.
+
+    The lattice atoms are drawn on a 2D plane, in the order determined by the z coordinate, from the 
+    larges z value to the smalest. In other words, atoms with the smalest z coordinate are will be in the
+    forerground, all the other will be drawn in the background.
+
+    Currently, this function does not scale atoms depending on the z coordinate -- the only factor that
+    impacts the atom size is its atomic number (which determines Van Der Vals radius). 
+
+    When the figsize is None, the size of the figure is automatically adapted to display the lattice 
+    with the given `offset` value. 
+
+    :param lattice: the lattice to display
+    :param offset: the offset to apply to the figure size, relative to the ($\AA$ units). 
+    :return: matplotlib figure and axis with drawn atoms 
+    """
+    coords = lattice.coordinates
+    radiuses = [openbabel.GetVdwRad(int(nr)) for nr in lattice.atomic_number]
+    colors = [get_atom_color_rgb(nr) for nr in lattice.atomic_number]
+    circles = [plt.Circle((x, y), r*0.2, color=c, zorder=z) 
+               for (x, y, z), r, c  in zip(coords, radiuses, colors)]
+    bonds = [(coords[b[0]], coords[b[1]]) for b in lattice.bonds]
+    # The offset was selected so that the bond is shown in the background of atoms.
+    bond_offset = -0.5
+    lines = [matplotlib.lines.Line2D((bs[0], be[0]), (bs[1], be[1]), zorder=(bs[2]+be[2])/2+bond_offset) 
+             for bs, be in bonds if not np.allclose(bs, be)] 
+    fig, ax = plt.subplots()
+    
+    for l in lines:
+        ax.add_line(l)
+    for c in circles:
+        ax.add_patch(c)
+    if xlim is None or ylim is None:
+        xlim = [np.min(coords[:, 0])-offset, np.max(coords[:, 0])+offset]
+        ylim = [np.min(coords[:, 1])-offset, np.max(coords[:, 1])+offset]
+    ax.set_xlim(xlim)
+    ax.set_ylim(ylim)
+    if figsize is None:
+        # keep the correct aspect ratio
+        x_min, x_max = xlim
+        xw = xlim[1]-xlim[0]
+        yw = ylim[1]-ylim[0]
+        # 1A == 0.2 inch
+        figsize = (xw*0.2, yw*0.2)
+    fig.set_size_inches(*figsize)
+    ax.set_xlabel("OX ($\AA$)")
+    ax.set_ylabel("OY ($\AA$)")
+    return fig, ax
+
+
+def plot_displacement(lattice, u, xlabel="OX ($\AA$)", ylabel="OY ($\AA$)", title="Dislocation field (u), OXY", dislocation_core_position=None):
+    fig, ax = plt.subplots()
+    ax.set_xlabel(xlabel)
+    ax.set_ylabel(ylabel)
+    ax.set_title(title)
+    y_dim = 1
+    x_dim = 0
+    plt.quiver(
+        lattice.coordinates[..., x_dim], lattice.coordinates[..., y_dim], 
+        u[..., x_dim], u[..., y_dim], 
+        color=vectors_to_rgb(u[..., (x_dim, y_dim)])
+    )
+    if dislocation_core_position is not None:
+        pos_x, pos_y = dislocation_core_position
+        plt.scatter(pos_x, pos_y, s=200.5, c="brown", marker="$\\bot$")
+    fig.tight_layout()
+    return fig, ax
+
+
+
+def plot_crystal_surface_y(ax, dislocation_position=(0, 0, 0), x0=0, y0=0, nx=2000, ny=2000, xlim=(-10, 10), ylim=(-1, 1), bx=1,
+                           color=None, linestyle=None, label=None):
+    def F(x, y, x0, y0, nu, bx, r0):
+        return y-y0+bx/(8*np.pi*(1-nu))*((1-2*nu)*np.log((x**2 + y**2)/r0**2)-2*y**2/(x**2 +y**2)
+                                    -(1-2*nu)*np.log((x0**2 + y0**2)/r0**2) +2*y0**2/(x0**2+y0**2))
+    
+    x = np.linspace(xlim[0], xlim[1], nx)
+    y = np.linspace(-1, 1, ny)
+    xy = np.meshgrid(x, y, indexing="ij")
+
+    xy = np.stack(xy).reshape(2, -1)
+
+    v = F(xy[0, :], xy[1, :], x0, y0, nu=0.35, bx=bx, r0=bx)
+    v = v.reshape(nx, ny)  # F(x, y)
+    mask = np.argmin(np.abs(v), axis=1)
+    ys = []
+    for i in mask:
+        ys.append(y[i])
+    ys = np.stack(ys)
+    x += dislocation_position[0]
+    ys += dislocation_position[1]
+    ax.plot(x, ys, color=color, linestyle=linestyle, label=label)
+
+    

@@ -82,7 +82,7 @@ class Molecule:
             if v.shape != self.coordinates.shape:
                 raise ValueError("The input vector should have the same "
                                  "dimensions as coordinates matrix.")
-        elif len(v.shape == 1):
+        elif len(v.shape) == 1:
             v = v.reshape(1, -1)
         new_coords = self.coordinates + v
         return dataclasses.replace(
