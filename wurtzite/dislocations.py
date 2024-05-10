@@ -12,7 +12,7 @@ from wurtzite.utils import is_vector
 
 
 # radius of inmobile ring relative to which the atoms in the core move up
-RADIUS_FACTOR = 1.0
+RADIUS_FACTOR = 0.5
 NU = 0.35
 
 BETA_ONES = np.diag(np.ones(3))  # (3, 3) diagonal matrix for beta function
@@ -41,10 +41,10 @@ def _get_rotation_tensor(burgers_vector, plane, cell: UnitCellDef):
     ])
 
 
-def love_function(x: np.ndarray, be: float, bz: float) -> np.ndarray:
+def love_function(x: np.ndarray, be: float, bz: float, i) -> np.ndarray:
     """
     Calculates love function.
-
+    :param i: the position of the atom in the list of the atoms 
     :return: love function for the given parameters (n_points, 3)
     """
     x1 = x[..., 0]  # (n_atoms, )
@@ -112,6 +112,7 @@ def displace_love(
         position: Union[Sequence[float], np.ndarray],
         burgers_vector: Union[Sequence[float], np.ndarray],
         plane: Union[Sequence[float], np.ndarray],
+        l_function=love_function,
         bv_fraction: float = 1.0,
         tolerance: float = 1e-7,
         method="hybr",
@@ -165,13 +166,13 @@ def displace_love(
     x_all = x_all-cd.reshape(1, -1)
     # x_distance = x_all-cd
 
-    def f(u, x):
+    def f(u, x, i):
         nonlocal be, bz
         current_x = x+u
         current_x = current_x.reshape(1, -1)
-        return u-love_function(current_x, be, bz).squeeze()
+        return u-l_function(current_x, be, bz, i).squeeze()
 
-    def jacobian(u, x):
+    def jacobian(u, x, i):
         nonlocal be, bz
         # TODO czy wlasciwy jacobian we wlasciwym kierunku?
         current_x = x + u
@@ -186,7 +187,7 @@ def displace_love(
             f,
             x0=u0,
             jac=jacobian,
-            args=(coords, ),
+            args=(coords, i, ),
             tol=tolerance,
             method=method,
             options=options
