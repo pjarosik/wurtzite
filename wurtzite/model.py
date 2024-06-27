@@ -143,3 +143,10 @@ class Crystal(Molecule):
                              "for the first dimension.")
 
 
+@dataclass(frozen=True)
+class DislocationDef:
+    b: np.ndarray
+    position: np.ndarray
+    plane: tuple
+    label: str = "d"
+    color: str = "brown"
