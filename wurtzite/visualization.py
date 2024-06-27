@@ -167,7 +167,6 @@ class VtkVisualizer:
         self.resolution_per_atom = resolution_per_atom
         self.window_size = window_size
         self.n_ticks = n_ticks
-        self.show_axes = show_axes
 
     def render_molecule(self, molecule: wurtzite.model.Molecule):
         colors = vtk.vtkNamedColors()
@@ -352,8 +351,30 @@ def vectors_to_rgb(vectors):
     return np.asarray(result)
 
 
+def _lighten_color(color, amount=1.0):
+    """
+    Credits: https://stackoverflow.com/questions/37765197/darken-or-lighten-a-color-in-matplotlib
+    
+    Lightens the given color by multiplying (1-luminosity) by the given amount.
+    Input can be matplotlib color string, hex string, or RGB tuple.
 
-def plot_atoms_2d(lattice, offset=5, figsize=None, xlim=None, ylim=None, xlabel=None, ylabel=None): 
+    Examples:
+    >> lighten_color('g', 0.3)
+    >> lighten_color('#F034A3', 0.6)
+    >> lighten_color((.3,.55,.1), 0.5)
+    """
+    import matplotlib.colors as mc
+    import colorsys
+    try:
+        c = mc.cnames[color]
+    except:
+        c = color
+    c = colorsys.rgb_to_hls(*mc.to_rgb(c))
+    return colorsys.hls_to_rgb(c[0], 1 - amount * (1 - c[1]), c[2])
+
+
+def plot_atoms_2d(lattice, offset=5, figsize=None, xlim=None, ylim=None, xlabel=None, ylabel=None,
+                  alpha: float=1.0): 
     """
     Display the lattice on the 2D plane.
 
@@ -374,12 +395,13 @@ def plot_atoms_2d(lattice, offset=5, figsize=None, xlim=None, ylim=None, xlabel=
     coords = lattice.coordinates
     radiuses = [openbabel.GetVdwRad(int(nr)) for nr in lattice.atomic_number]
     colors = [get_atom_color_rgb(nr) for nr in lattice.atomic_number]
-    circles = [plt.Circle((x, y), r*0.2, color=c, zorder=z) 
+    circles = [plt.Circle((x, y), r*0.2, color=_lighten_color(c, alpha), zorder=z) 
                for (x, y, z), r, c  in zip(coords, radiuses, colors)]
     bonds = [(coords[b[0]], coords[b[1]]) for b in lattice.bonds]
     # The offset was selected so that the bond is shown in the background of atoms.
     bond_offset = -0.5
-    lines = [matplotlib.lines.Line2D((bs[0], be[0]), (bs[1], be[1]), zorder=(bs[2]+be[2])/2+bond_offset) 
+    lines = [matplotlib.lines.Line2D((bs[0], be[0]), (bs[1], be[1]), zorder=(bs[2]+be[2])/2+bond_offset, 
+                                     color=_lighten_color("black", alpha)) 
              for bs, be in bonds if not np.allclose(bs, be)] 
     fig, ax = plt.subplots()
     
@@ -448,4 +470,15 @@ def plot_crystal_surface_y(ax, dislocation_position=(0, 0, 0), x0=0, y0=0, nx=20
     ys += dislocation_position[1]
     ax.plot(x, ys, color=color, linestyle=linestyle, label=label)
 
-    
+
+def display_dislocation(ax, d: wurtzite.model.DislocationDef, scale=200.5):
+    ax.scatter(d.position[0], d.position[1], s=scale, c=d.color, marker="$\\bot$")
+    ax.text(d.position[0], d.position[1], d.label, zorder=1000)
+
+
+def display_crystal_with_dislocations(crystal, dis):
+    plt.figure()
+    fig, ax = plot_atoms_2d(crystal)
+    for d in dis:
+        display_dislocation(ax, d)
+    return fig, ax
