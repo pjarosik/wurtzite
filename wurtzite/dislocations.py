@@ -41,9 +41,10 @@ def _get_rotation_tensor(burgers_vector, plane, cell: UnitCellDef):
     ])
 
 
-def love_function(x: np.ndarray, be: float, bz: float, i) -> np.ndarray:
+def love_function(x: np.ndarray, be: float, bz: float) -> np.ndarray:
     """
     Calculates love function.
+    
     :param i: the position of the atom in the list of the atoms 
     :return: love function for the given parameters (n_points, 3)
     """
@@ -166,13 +167,13 @@ def displace_love(
     x_all = x_all-cd.reshape(1, -1)
     # x_distance = x_all-cd
 
-    def f(u, x, i):
+    def f(u, x):
         nonlocal be, bz
         current_x = x+u
         current_x = current_x.reshape(1, -1)
-        return u-l_function(current_x, be, bz, i).squeeze()
+        return u-l_function(current_x, be, bz).squeeze()
 
-    def jacobian(u, x, i):
+    def jacobian(u, x):
         nonlocal be, bz
         # TODO czy wlasciwy jacobian we wlasciwym kierunku?
         current_x = x + u
@@ -187,7 +188,7 @@ def displace_love(
             f,
             x0=u0,
             jac=jacobian,
-            args=(coords, i, ),
+            args=(coords, ),
             tol=tolerance,
             method=method,
             options=options
