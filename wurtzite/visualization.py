@@ -7,6 +7,7 @@ from typing import Tuple
 
 import matplotlib
 import matplotlib.pyplot as plt
+import matplotlib.animation
 import matplotlib.lines
 import panel as pn
 import vtk
@@ -24,9 +25,9 @@ pn.extension("vtk")
 # Copied from openbabel implementation
 # i-th row: r, g, b for atom with i+1 number
 _ATOM_COLORS = [
-    0.07, 0.50, 0.70,
-    0.75, 0.75, 0.75,
-    0.85, 1.00, 1.00,
+    0.07, 0.50, 0.70, # Atom number zero: DUMMY
+    0.75, 0.75, 0.75, # Atom number one: Hydrogen 
+    0.85, 1.00, 1.00, # ...
     0.80, 0.50, 1.00,
     0.76, 1.00, 0.00,
     1.00, 0.71, 0.71,
@@ -39,8 +40,8 @@ _ATOM_COLORS = [
     0.54, 1.00, 0.00,
     0.75, 0.65, 0.65,
     0.50, 0.60, 0.60,
-    1.00, 1.00, 0.00,
-    1.00, 1.00, 0.00,
+    1.00, 0.50, 0.00,
+    0.70, 0.70, 0.00,
     0.12, 0.94, 0.12,
     0.50, 0.82, 0.89,
     0.56, 0.25, 0.83,
@@ -144,12 +145,13 @@ _ATOM_COLORS = [
     0.99, 0.00, 0.07,
     0.99, 0.00, 0.06,
 ]
+
 _ATOM_COLORS = np.asarray(_ATOM_COLORS)
 _ATOM_COLORS = _ATOM_COLORS.reshape(-1, 3)
 
 
 def get_atom_color_rgb(nr) -> Tuple[float, float, float]:
-    return _ATOM_COLORS[nr-1]
+    return _ATOM_COLORS[nr]
 
 
 class VtkVisualizer:
@@ -374,7 +376,7 @@ def _lighten_color(color, amount=1.0):
 
 
 def plot_atoms_2d(lattice, offset=5, figsize=None, xlim=None, ylim=None, xlabel=None, ylabel=None,
-                  alpha: float=1.0): 
+                  alpha: float=1.0, fig=None, ax=None): 
     """
     Display the lattice on the 2D plane.
 
@@ -403,7 +405,8 @@ def plot_atoms_2d(lattice, offset=5, figsize=None, xlim=None, ylim=None, xlabel=
     lines = [matplotlib.lines.Line2D((bs[0], be[0]), (bs[1], be[1]), zorder=(bs[2]+be[2])/2+bond_offset, 
                                      color=_lighten_color("black", alpha)) 
              for bs, be in bonds if not np.allclose(bs, be)] 
-    fig, ax = plt.subplots()
+    if fig is None or ax is None:
+        fig, ax = plt.subplots()
     
     for l in lines:
         ax.add_line(l)
@@ -482,3 +485,45 @@ def display_crystal_with_dislocations(crystal, dis):
     for d in dis:
         display_dislocation(ax, d)
     return fig, ax
+
+
+def display_tee_2d(ax, d: wurtzite.model.DislocationDef, line_width=6, zorder=10000, scale=1.0, fontsize="medium",
+                   label_offset: tuple = (0, -1)):
+    line_width *= scale
+    pos, b = np.asarray(d.position), np.asarray(d.b)*scale
+    t_left_x, t_left_y = pos[:2] - b[:2]  # left
+    t_center_x, t_center_y = pos[:2]  # center
+    t_right_x, t_right_y = pos[:2] + b[:2]  # right
+    # top (bv rotated by pi/2)
+    bv_rotated = np.asarray([-b[1], b[0]])
+    t_top_x, t_top_y = pos[:2] + bv_rotated  # top
+    
+    ax.plot([t_left_x, t_right_x], [t_left_y, t_right_y], color=d.color, lw=line_width, zorder=zorder)
+    ax.plot([t_center_x, t_top_x], [t_center_y, t_top_y], color=d.color, lw=line_width, zorder=zorder)
+    ax.text(d.position[0]+label_offset[0]*scale, d.position[1]+label_offset[1]*scale, d.label,  
+            horizontalalignment="center", verticalalignment="center", 
+            zorder=zorder, fontsize=fontsize)
+    return ax
+
+
+def create_animation_2d(data, plot_function, figsize=None, interval=200):
+    fig, ax = plt.subplots()
+    ax.set_aspect("equal")
+
+    def init():
+        nonlocal fig, ax
+        plot_function(data=data[0], fig=fig, ax=ax)
+        return []
+
+    def animate(i):
+        nonlocal fig, ax
+        ax.clear()
+        plot_function(fig=fig, ax=ax, data=data[i])
+        return []
+        
+    if figsize is not None:
+        fig.set_size_inches(figsize)
+
+    return matplotlib.animation.FuncAnimation(
+        fig, animate, init_func=init, frames=len(data),
+        interval=interval, blit=False)
