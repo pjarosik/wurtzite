@@ -203,7 +203,7 @@ def displace_love(
     return result_u
 
 
-def get_crystal_surface_oxy(position=(0, 0, 0), x0=0, y0=0, nx=2000, ny=2000, xlim=(-10, 10), ylim=(-1, 1), bx=1):
+def get_crystal_surface_oxy(position=(0, 0, 0), x0=0, y0=0, nx=2000, ny=2000, xlim=(-10, 10), ylim=(-10, 10), bx=1):
     def F(x, y, x0, y0, nu, bx, r0):
         return y-y0+bx/(8*np.pi*(1-nu))*((1-2*nu)*np.log((x**2 + y**2)/r0**2)-2*y**2/(x**2 +y**2)
                                     -(1-2*nu)*np.log((x0**2 + y0**2)/r0**2) +2*y0**2/(x0**2+y0**2))
