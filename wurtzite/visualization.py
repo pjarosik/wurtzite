@@ -19,6 +19,8 @@ from vtkmodules.vtkCommonDataModel import vtkPolyData
 
 import wurtzite.model
 from wurtzite.model import Crystal
+from pathlib import Path
+import os
 
 pn.extension("vtk")
 
@@ -527,3 +529,17 @@ def create_animation_2d(data, plot_function, figsize=None, interval=200):
     return matplotlib.animation.FuncAnimation(
         fig, animate, init_func=init, frames=len(data),
         interval=interval, blit=False)
+
+
+def create_animation_frames(data, plot_function, figsize=None, interval=200,
+                            output_dir=".", output_format="svg", dpi=300,
+                            bbox_inches=None):
+    Path(output_dir).mkdir(exist_ok=True, parents=True)
+    for i, d in enumerate(data):
+        fig, ax = plt.subplots()
+        fig.set_size_inches(figsize)
+        plot_function(data=d, fig=fig, ax=ax)
+        ax.set_aspect("equal")
+        fig.savefig(os.path.join(output_dir, f"frame_{i:03d}.{output_format}"),
+                 dpi=dpi, bbox_inches=bbox_inches)
+        plt.close(fig)
