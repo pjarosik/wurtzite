@@ -105,7 +105,7 @@ def get_d0(crystal_plane, point):
     return np.asarray([rd0x, rd0y])
 
 
-def get_love_compensation(crystal_plane, dis_b, point, debug=False):
+def get_love_compensation(crystal_plane, point, debug=False):
     # Crystal plane zaczepiona powinna byc w dis_b!
     vd0 = get_d0((crystal_plane[:, 0], crystal_plane[:, 1]), point=point)
     if debug:
@@ -208,13 +208,30 @@ def beta(x: np.ndarray, be: float, bz: float) -> np.ndarray:
     return result  # (natoms, 3, 3)
 
 
-def get_betas(crystal, d, point, rotation_matrix):
+def get_betas(crystal, d, point, rotation_matrix, debug=False):
+    """
+    d - dislocation IN THE LOCAL SYSTEM OF THE CURRENTly introduced dislocation
+    """
+    if rotation_matrix is None:
+        # None means there should be no betas for the given point
+        return np.zeros((point.shape[0], 2, 2))
     be, bz = get_be_bz(crystal.cell, d.b)
     point = np.asarray(point)-np.asarray(d.position)
     point = rotation_matrix.dot(point.T).T
     betas = beta(point, be=be, bz=bz)[:, :2, :2]
     rm = rotation_matrix[:2, :2].reshape(1, 2, 2)
     betas = rm.transpose((0, 2, 1)) @ betas @ rm
+    # clean-up betas
+    # Make sure that any point that is close to the dislocation d is zeroed.
+    # Otherwise, we may get very large values (due to division by x**2+y**2 in
+    # the beta function).
+    # NOTE: point is already in the d local coordinate system
+    # (see -d.position above)
+    p_d_distance = np.linalg.norm(point[..., :2], axis=1)
+    near_points = np.squeeze(np.isclose(p_d_distance, 0.0, atol=1e-0))
+    betas[near_points, :] = 0.0
+    if debug:
+        print(f"p_d_distance: {p_d_distance}, d_position: {d.position}, point: {point}")
     return betas
 
 
@@ -223,25 +240,26 @@ def broadcast_eye(n, nrepeats):
 
 
 # VALUE FUNCTION AND JACOBIAN FOR ITERATING ATOMS, POINTS AND DISLOCATION POSITIONS
-def f_points(crystal, u, x, crystal_plane, dis_2, debug=False):
+def f_points(crystal, u, x, crystal_plane, d2, debug=False):
     current_x = x + u
     current_x = current_x.reshape(-1, 3)
     us = []
-    be, bz = get_be_bz(crystal.cell, dis_2.b)
+    be, bz = get_be_bz(crystal.cell, d2.b)
     for p in current_x:
-        rd, delta_d = get_love_compensation(crystal_plane, dis_2, point=p, debug=debug)
+        rd, delta_d = get_love_compensation(crystal_plane, point=p, debug=debug)
         new_u = love_polar((rd, delta_d), be=be, bz=bz)
         us.append(new_u)
     new_u = np.stack(us)
     return u - new_u
 
-def jacobian_points(crystal, u, x, dis_1_rot_matrix, dis_2_rot_matrix, dis_1, dis_2):
+
+def jacobian_points(crystal, u, x, d1_rt, d2_rt, d1, d2, debug=False):
     # dis_1_rot_matrix: macierz obrotu 1 pierwszej dyslokacji, po uwzglednieniu bet z drugiej
     current_x = x + u
     current_x = current_x.reshape(1, -1)
-    betas = get_betas(crystal, dis_2, current_x.reshape(-1, 3), dis_2_rot_matrix)
-    if dis_1_rot_matrix is not None: # TODO and not np.isclose(np.linalg.norm(dis_1.position-current_x), 0.0, atol=1e-4):
-        betas += get_betas(crystal, dis_1, current_x.reshape(-1, 3), dis_1_rot_matrix)
+    betas_1 = get_betas(crystal, d1, current_x.reshape(-1, 3), d1_rt, debug=debug)
+    betas_2 = get_betas(crystal, d2, current_x.reshape(-1, 3), d2_rt, debug=debug)
+    betas = betas_1 + betas_2
     F_inv = (broadcast_eye(2, betas.shape[0]) - betas)
     ones = broadcast_eye(3, betas.shape[0])
     ones[:, :2, :2] = F_inv
@@ -250,36 +268,26 @@ def jacobian_points(crystal, u, x, dis_1_rot_matrix, dis_2_rot_matrix, dis_1, di
 
 # VALUE FUNCTION AND JACOBIAN FOR ITERATING CRYSTAL PLANE POINTS
 # NOTE: we sk:Wip here the delta part -- as this is always equal 0
-def f_crystal_plane(crystal, u, x, dis_2):
+def f_crystal_plane(crystal, u, x, d2):
     current_x = x + u
     current_x = current_x.reshape(-1, 3)
     us = []
-    be, bz = get_be_bz(crystal.cell, dis_2.b)
+    be, bz = get_be_bz(crystal.cell, d2.b)
     for p in current_x:
         p = np.asarray(p)
         r, _ = to_polar(p)  # Intentionally ignoring delta -- should be 0
         theta = 0.0
         new_u = love_polar((r, theta), be=be, bz=bz)
         # Intentially setting ux and uz to 0 for crystal plane (should be 0, not the b/2)
-        new_u[0] = 0.0
+        new_u[0] = be
         new_u[2] = 0.0
         us.append(new_u)
     new_u = np.stack(us)
     return u-new_u
 
 
-def jacobian_crystal_plane(crystal, u, x, dis_1_rot_matrix, dis_2_rot_matrix, dis_1, dis_2):
-    # dis_1_rot_matrix: macierz obrotu 1 pierwszej dyslokacji, po uwzglednieniu bet z drugiej
-    current_x = x + u
-    current_x = current_x.reshape(1, -1)
-    betas = get_betas(crystal, dis_2, current_x.reshape(-1, 3), dis_2_rot_matrix)
-    if dis_1_rot_matrix is not None:  # TODO and not np.isclose(np.linalg.norm(dis_1.position-current_x), 0.0, atol=1e-4):
-        betas += get_betas(crystal, dis_1, current_x.reshape(-1, 3), dis_1_rot_matrix)
-    F_inv = broadcast_eye(2, betas.shape[0]) - betas
-    ones = broadcast_eye(3, betas.shape[0])
-    ones[:, :2, :2] = F_inv
-    return ones
-
+def jacobian_crystal_plane(*args, **kwargs):
+    return jacobian_points(*args, **kwargs)
 
 def get_cp(l, d1, d2):
     # d1, d2: global coordinate system
@@ -310,7 +318,7 @@ def displace_all(
     )
 
     d2_global = dataclasses.replace(d2, b=dis_2_bv)
-    dis_2_local = dataclasses.replace(
+    d2_local = dataclasses.replace(
         d2_global,
         b=np.asarray([1.0, 0, 0]),
         position=[0.0, 0, 0]
@@ -383,10 +391,10 @@ def displace_all(
         def jac(u, x):
             # dis_2 -- moze byc w ukladzie globalnym, bo kierunek wektora burgersa
             # nie ma znaczenia -- ma znacznie tylko modul
-            return jacobian_points(crystal, u, x, dis_1_rot_matrix=None, dis_2_rot_matrix=d2_rt, dis_1=d1_current_local, dis_2=d2_global)
+            return jacobian_points(crystal, u, x, d1_rt=None, d2_rt=d2_rt, d1=d1_current_local, d2=d2_local)
 
         def u_func(u, x):
-            return f_points(crystal, u, x, crystal_plane=crystal_plane_current, dis_2=d2_global)
+            return f_points(crystal, u, x, crystal_plane=crystal_plane_current, d2=d2_local)
             
         # - Determine the new position
         u_d1_current = step_newton_raphson(u_d1_current, f=u_func, jacobian=jac, lr=lr, x=d1_pos_orig)
@@ -413,14 +421,11 @@ def displace_all(
             return jacobian_crystal_plane(
                 crystal,
                 u, x,
-                dis_1_rot_matrix=d1_rt_current,
-                dis_2_rot_matrix=d2_rt,
-                dis_1=d1_current_local,
-                dis_2=d2_global
+                d1_rt=d1_rt_current, d2_rt=d2_rt, d1=d1_current_local, d2=d2_local
             )
 
         def u_func_cp(u, x):
-            return f_crystal_plane(crystal, u, x, dis_2=d2_global)
+            return f_crystal_plane(crystal, u, x, d2=d2_global)
 
         # Wydaje sie nie dawac dobrego rozwiazania
         # Wyznacz polozenia atomow
@@ -429,7 +434,7 @@ def displace_all(
         #     x=crystal_plane_orig
         # )
         cpp = get_cp(crystal, d1=d1_current_global, d2=d2_global)
-        # UWAGA: cpp jest w globalnym ukladzie wspolrzednych
+        # # UWAGA: cpp jest w globalnym ukladzie wspolrzednych
         u_crystal_plane_current = cpp-crystal_plane
 
         crystal_plane_current = crystal_plane_orig + u_crystal_plane_current
@@ -440,20 +445,30 @@ def displace_all(
             return jacobian_points(
                 crystal,
                 u, x,
-                dis_1_rot_matrix=d1_rt_current,
-                dis_2_rot_matrix=d2_rt,
-                dis_1=d1_current_local,
-                dis_2=d2_global
+                d1_rt=d1_rt_current,
+                d2_rt=d2_rt,
+                d1=d1_current_local,
+                d2=d2_global,
             )
         # ATOMS
         u_atoms_current = step_newton_raphson(u_atoms_current, f=u_func, jacobian=jac, lr=lr, x=atoms_orig)
 
         # OTHER POINTS
         if points is not None:
+            def jac_points(u, x):
+                return jacobian_points(
+                    crystal,
+                    u, x,
+                    d1_rt=d1_rt_current,
+                    d2_rt=d2_rt,
+                    d1=d1_current_local,
+                    d2=d2_global,
+                    debug=False
+                )
             def u_func_points(u, x):
-                return f_points(crystal, u, x, crystal_plane=crystal_plane_current, dis_2=d2_global, debug=False)
+                return f_points(crystal, u, x, crystal_plane=crystal_plane_current, d2=d2_local, debug=False)
+            u_points_current = step_newton_raphson(u_points_current, f=u_func_points, jacobian=jac_points, lr=lr, x=points_orig)
 
-            u_points_current = step_newton_raphson(u_points_current, f=u_func_points, jacobian=jac, lr=lr, x=points_orig)
         # Store
         u_crystal_planes[i, :, :] = _postprocess(u_crystal_plane_current)
         u_atoms[i, :, :] = _postprocess(u_atoms_current)

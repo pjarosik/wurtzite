@@ -41,12 +41,13 @@ def plot_function2(data, l, crystal_plane, fig, ax, alpha, points, xlim, ylim):
     if frame > 0:
         # DO NOT display points in the initial configuration
         # Remove nans
-        # u_points[np.isclose(u_points, 0.0)] = 1e-5
-        # ax.quiver(
-        #     points[..., 0], points[..., 1],
-        #     u_points[..., 0], u_points[..., 1],
-        #     color=wurtzite.visualization.vectors_to_rgb(u_points[..., (0, 1)]))
-        pass
+        u_points[np.isclose(u_points, 0.0)] = 1e-5
+        ax.quiver(
+            points[..., 0], points[..., 1],
+            u_points[..., 0], u_points[..., 1],
+            color=wurtzite.visualization.vectors_to_rgb(u_points[..., (0, 1)]),
+            scale=100
+        )
 
     # # vector lengths
     # for i, p in enumerate(points):
@@ -67,7 +68,7 @@ def plot_function2(data, l, crystal_plane, fig, ax, alpha, points, xlim, ylim):
     if xlim is not None and ylim is not None:
         ax.set_xlim(xlim)
         ax.set_ylim(ylim)
-    fig.set_size_inches((20, 10))
+    plt.show()
 
 
 def animate_all(l, crystal_plane, d1s, d2s, u_atoms, u_crystal_planes,
@@ -83,7 +84,7 @@ def animate_all(l, crystal_plane, d1s, d2s, u_atoms, u_crystal_planes,
         lambda data, fig, ax: plot_function2(
             data=data, fig=fig, ax=ax, l=l, crystal_plane=crystal_plane,
             alpha=alpha, points=points, xlim=xlimits, ylim=ylimits),
-        figsize=2*np.asarray((10, 10)),
+        figsize=2*np.asarray((abs(xlimits[0]-xlimits[1]), abs(ylimits[0]-ylimits[1]))),
         output_dir=output_dir,
         output_format="png"
     )
@@ -125,33 +126,30 @@ l1 = wzt.generate.update_bonds(l1)
 # fig.savefig(f"{output_dir}/d1.svg")
 
 
-# d2
-# wyznacz plaszczyzne krystalograficzna wynikajaca z d1, przechodzaca przez d2
-# Wspolrzedne sa w globalnym ukladzie wspolrzednych (0, 0, 0)
-# OPEARCJA CZASOCHLONNA
-
-
 # Displacement field sampling points
-n_points = 20
-x = np.linspace(0, 8, n_points)
+n_points = 40
+x = np.linspace(0, 20, n_points)
 y = np.linspace(2.5, 7.5, n_points)
 xv, yv = np.meshgrid(x, y)
 points = np.vstack([xv.ravel(), yv.ravel()]).T
 zeros = np.zeros((points.shape[0], 1))
 points = np.hstack([points, zeros])
 
+# points = np.asarray([2.876, 4.976, 0]).reshape(1, -1)
+
 # Run the displacement on the second dislocation
 d1s, d2s, u_atoms, u_crystal_plane, u_points, initial_crystal_plane = displace_all(
     crystal=l1,
     d1=dis_1, d2=dis_2,
     points=points,
-    n_iter=4,
+    n_iter=12,
 )
+
 
 # animate it
 anim = animate_all(
     l1, initial_crystal_plane, d1s, d2s, u_atoms, u_crystal_plane, u_points,
     points=points, alpha=0.5,
-    xlimits=(-8, 26), ylimits=(0, 20),
+    xlimits=(-2, 22), ylimits=(0, 12),
 )
 
