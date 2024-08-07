@@ -256,7 +256,7 @@ CELLS = [
             ("Ga", (2/3, 1/3, 7/8))
         ]
     ),
-     UnitCellDef.create(
+    UnitCellDef.create(
         name="B4_ZnS",
         dimensions=(3.811, 3.811, 6.234),
         angles=np.array((90.0, 90.0, 120.0))*np.pi/180,
@@ -265,6 +265,40 @@ CELLS = [
             ("Zn", (0.0, 0.0, 3/8)),
             ("S",  (2/3, 1/3, 1/2)),
             ("Zn", (2/3, 1/3, 7/8))
+        ]
+    ),
+    # See Bojarski, et al.
+    UnitCellDef.create(
+        name="B4_AlN",
+        dimensions=(3.11, 3.11, 4.98),
+        angles=np.array((90.0, 90.0, 120.0))*np.pi/180,
+        atoms_with_coords=[
+            ("N",  (0.0, 0.0, 0.0)),
+            ("Al", (0.0, 0.0, 3/8)),
+            ("N",  (2/3, 1/3, 1/2)),
+            ("Al", (2/3, 1/3, 7/8))
+        ]
+    ),
+    UnitCellDef.create(
+        name="B4_InN",
+        dimensions=(3.533, 3.533, 5.692),
+        angles=np.array((90.0, 90.0, 120.0))*np.pi/180,
+        atoms_with_coords=[
+            ("N",  (0.0, 0.0, 0.0)),
+            ("In", (0.0, 0.0, 3/8)),
+            ("N",  (2/3, 1/3, 1/2)),
+            ("In", (2/3, 1/3, 7/8))
+        ]
+    ),
+    UnitCellDef.create(
+        name="B4_SiC",
+        dimensions=(1.1*3.076, 1.1*3.076, 1.1*5.048),
+        angles=np.array((90.0, 90.0, 120.0))*np.pi/180,
+        atoms_with_coords=[
+            ("C",  (0.0, 0.0, 0.0)),
+            ("Si", (0.0, 0.0, 3/8)),
+            ("C",  (2/3, 1/3, 1/2)),
+            ("Si", (2/3, 1/3, 7/8))
         ]
     )
 ]
