@@ -4,12 +4,12 @@ import matplotlib
 
 matplotlib.rc('font', size=14)
 
-output_dir = "4"
+output_dir = "57"
 
-nx, ny, nz = 6, 6, 2
+nx, ny, nz = 7, 6, 2
 l0 = wzt.generate.create_lattice(
     dimensions=(nx, ny, nz),
-    cell="B4_ZnS",
+    cell="B4_AlN",
 )
 
 import numpy as np
@@ -96,7 +96,8 @@ def displace_love2(
 
 
 b0 = [1, 0, 0]
-position0 = [4.765+1.8667, 5.53+0.656, 7.5]
+position0 = [3.890+l0.cell.dimensions[0], 4.03+1.6, 7.5]
+# position0 = [4.165, 4.13+1.8, 7.5]
 # position0 = [5, 6, 7.5]
 plane0 = (0, 0, 1)
 
@@ -127,30 +128,36 @@ def plot_function(data, fig, ax):
     u = data
     li = l0.translate(u)
     li = wzt.generate.update_bonds(li)
-    wzt.visualization.plot_atoms_2d(li, fig=fig, ax=ax, alpha=0.8)
+    wzt.visualization.plot_atoms_2d(li, fig=fig, ax=ax, alpha=0.8, start_z=1, end_z=4)
     wzt.visualization.display_tee_2d(ax, d=d, scale=0.6, fontsize=14)
 
-    a = 202
+    a = 231 + nz*2
     b = a - 2*nz
 
-    c = a
+    c = a + 2*nz
     e = c + 2*nz
 
-    plot_distance(ax, li.coordinates[a, :2], li.coordinates[b, :2], (0.5, 0.5))
-    plot_distance(ax, li.coordinates[c, :2], li.coordinates[e, :2], (-2.0, 0.5))
+    # Polaczenie do srodka
+    # a = 199
+    # b = a - 2*ny*nz + 2
+    # c = a + 2*nz
+    # e = b
 
-    f = b + nz
-    g = f - 2*ny*nz
-    plot_distance(ax, li.coordinates[f, :2], li.coordinates[g, :2], (-2.2, -1.5))
+    plot_distance(ax, li.coordinates[a, :2], li.coordinates[b, :2], (-2.5, 0.5))
+    plot_distance(ax, li.coordinates[c, :2], li.coordinates[e, :2], (0.5, 0.5))
+
+    f = b + 2*nz
+    g = f - 2*ny*nz-2*nz
+    plot_distance(ax, li.coordinates[f, :2], li.coordinates[g, :2], (-2.8, -2.2))
 
     h = f + 2*nz
-    j = h - 2 * ny * nz
-    plot_distance(ax, li.coordinates[h, :2], li.coordinates[j, :2], (0.0, 1.5), reference_point="b")
-    ax.set_xlim(-0.4, 13.6)
-    ax.set_ylim(-1, 12)
+    j = h - 2 * ny * nz - 2*nz
+    plot_distance(ax, li.coordinates[h, :2], li.coordinates[j, :2], (0.5, 0.5), reference_point="b")
+    ax.set_xlim(0.5, 13)
+    ax.set_ylim(-1-1.3, 11.5-1.3)
     ax.set_axis_off()
     print(i)
     # ax.set_title(f"Iteration: {i}")
     i += 1
 
-wzt.visualization.create_animation_frames(us, plot_function, figsize=(10, 5), output_dir=output_dir, file_prefix="4_")
+wzt.visualization.create_animation_frames(us, plot_function, figsize=(10, 5), output_dir=output_dir, file_prefix="57_")

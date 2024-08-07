@@ -6,10 +6,10 @@ matplotlib.rc('font', size=14)
 
 output_dir = "8"
 
-nx, ny, nz = 6, 6, 2
+nx, ny, nz = 7, 6, 2
 l0 = wzt.generate.create_lattice(
     dimensions=(nx, ny, nz),
-    cell="B4_ZnS",
+    cell="B4_AlN",
 )
 
 import numpy as np
@@ -27,7 +27,7 @@ def newton_raphson(x0, n_iter, f, jacobian, **kwargs):
     for i in range(n_iter):
         j = jacobian(x, **kwargs)
         o = f(x, **kwargs)
-        x = x - 0.7 * np.linalg.inv(j).dot(o)
+        x = x - 1.0 * np.linalg.inv(j).dot(o)
         xs.append(x)
     return x, xs
 
@@ -83,7 +83,7 @@ def displace_love2(
     all_us = []
     for i, coords in enumerate(x_all):
         u0 = np.zeros(3)
-        u, us = newton_raphson(x0=u0, n_iter=10, f=f, jacobian=jacobian,
+        u, us = newton_raphson(x0=u0, n_iter=4, f=f, jacobian=jacobian,
                                x=coords)
         result_u[i] = u
         all_us.append(np.stack(us))
@@ -96,7 +96,8 @@ def displace_love2(
 
 
 b0 = [1, 0, 0]
-position0 = [4.765, 5.53, 7.5]
+position0 = [3.890+1.0*l0.cell.dimensions[0], 4.03+0.5, 7.5]
+# position0 = [3.865, 4.03, 7.5]
 # position0 = [5, 6, 7.5]
 plane0 = (0, 0, 1)
 
@@ -107,7 +108,7 @@ u0, us = displace_love2(
     position=position0,
     burgers_vector=b0,
     plane=plane0,
-    bv_fraction=1.0,
+    bv_fraction=1,
 )
 
 i = 0
@@ -127,17 +128,17 @@ def plot_function(data, fig, ax):
     u = data
     li = l0.translate(u)
     li = wzt.generate.update_bonds(li)
-    wzt.visualization.plot_atoms_2d(li, fig=fig, ax=ax, alpha=0.8)
+    wzt.visualization.plot_atoms_2d(li, fig=fig, ax=ax, alpha=0.8, start_z=1, end_z=4)
     wzt.visualization.display_tee_2d(ax, d=d, scale=0.6, fontsize=14)
 
-    a = 199
-    b = a - 2*ny*nz
+    a = 235
+    b = a - 2*ny*nz - 2*nz
 
-    c = 202
-    e = c - 2 * ny * nz
+    c = 239
+    e = c - 2 * ny * nz - 2 *nz
 
-    plot_distance(ax, li.coordinates[a, :2], li.coordinates[b, :2], (-0.1, -1.7))
-    plot_distance(ax, li.coordinates[c, :2], li.coordinates[e, :2], (-1.4, -1.7))
+    plot_distance(ax, li.coordinates[a, :2], li.coordinates[b, :2], (-2.5, -2.5))
+    plot_distance(ax, li.coordinates[c, :2], li.coordinates[e, :2], (0.8, -2.5))
 
     f = b - nz
     g = f + 2*nz
@@ -147,10 +148,11 @@ def plot_function(data, fig, ax):
     j = g + 2*nz
     plot_distance(ax, li.coordinates[h, :2], li.coordinates[j, :2], (-2.75, -0.5), reference_point="b")
 
-    ax.set_xlim(-5, 12)
-    ax.set_ylim(-1, 9.5)
+    ax.set_xlim(2.25-1.2, 14.75-1.2)
+    ax.set_ylim(-1-1.3, 11.5-1.3)
+    ax.set_axis_off()
     print(i)
-    ax.set_title(f"Iteration: {i}")
+    # ax.set_title(f"Iteration: {i}")
     i += 1
 
-wzt.visualization.create_animation_frames(us, plot_function, figsize=(10, 5), output_dir=output_dir)
+wzt.visualization.create_animation_frames(us, plot_function, figsize=(10, 5), output_dir=output_dir, file_prefix="8_")
