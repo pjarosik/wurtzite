@@ -11,7 +11,7 @@ from utils_1st import newton_raphson
 
 NU = 0.35
 BETA_ONES = np.eye(3)
-RADIUS_FACTOR = 0.5
+RADIUS_FACTOR = 0.25
 
 
 def get_crystal_surface_y0(l0, dislocation, xy, x0=0, n=100000, y0lim=(-30, 30)):
@@ -210,9 +210,11 @@ def love_polar(x: np.ndarray, be: float, bz: float) -> np.ndarray:
     :return: love function for the given parameters (n_points, 3)
     """
     r, theta = x
-    r02 = RADIUS_FACTOR * be ** 2
+    r02 = RADIUS_FACTOR * be**2
     ux = -be / (2 * np.pi) * (theta + np.sin(2 * theta) / (4.0 * (1 - NU))) + be / 2
-    uy = -be / (8 * np.pi * (1 - NU)) * ( (1.0 - 2 * NU) * np.log(r**2 / r02) - 2 * (np.sin(theta) ** 2))
+    uy = - be / (8 * np.pi * (1 - NU)) * ( (1.0 - 2 * NU) * np.log(r**2 / r02) - 2 * (np.sin(theta) ** 2))
+    # uy = - be / (8 * np.pi * (1 - NU)) * ( - 2 * (np.sin(theta) ** 2))
+    # uy = - be / (8 * np.pi * (1 - NU)) * ( (1.0 - 2 * NU) * np.log(r**2 / r02) + 2 * (np.sin(theta) ** 2))
     uz = -bz / (2 * np.pi) * theta + bz / 2
     return np.array([ux, uy, uz])
 

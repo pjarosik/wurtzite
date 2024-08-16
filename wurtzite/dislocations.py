@@ -207,14 +207,14 @@ def get_crystal_surface_oxy(position=(0, 0, 0), x0=0, y0=0, nx=2000, ny=2000, xl
     def F(x, y, x0, y0, nu, bx, r0):
         return y-y0+bx/(8*np.pi*(1-nu))*((1-2*nu)*np.log((x**2 + y**2)/r0**2)-2*y**2/(x**2 +y**2)
                                     -(1-2*nu)*np.log((x0**2 + y0**2)/r0**2) +2*y0**2/(x0**2+y0**2))
-    
+
     x = np.linspace(xlim[0], xlim[1], nx)
     y = np.linspace(ylim[0], ylim[1], ny)
     xy = np.meshgrid(x, y, indexing="ij")
 
     xy = np.stack(xy).reshape(2, -1)
 
-    v = F(xy[0, :], xy[1, :], x0, y0, nu=NU, bx=bx, r0=bx)
+    v = F(xy[0, :], xy[1, :], x0, y0, nu=NU, bx=bx, r0=bx/2)
     v = v.reshape(nx, ny)  # F(x, y)
     mask = np.argmin(np.abs(v), axis=1)
     ys = []
@@ -223,4 +223,4 @@ def get_crystal_surface_oxy(position=(0, 0, 0), x0=0, y0=0, nx=2000, ny=2000, xl
     ys = np.stack(ys)
     x += position[0]
     ys += position[1]
-    return (x, ys)
+    return x, ys

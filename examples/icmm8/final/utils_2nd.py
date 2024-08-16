@@ -44,16 +44,13 @@ def get_rotation_matrix(l0, dis_a, dis_b):
     betas = beta(dis_b_local, be=be, bz=bz)
     F_inv = (BETA_ONES - betas)
     F = np.linalg.inv(F_inv[0, :2, :2])
-
-    bb = dis_b.b[:2]
-    bb_rotated = F.dot(bb)
-    bb = bb_rotated / np.linalg.norm(bb_rotated)
-    bb_orto = np.array([[0, -1],
-                        [1, 0]]).dot(bb)
-    bb_z = np.asarray([0, 0, 1])
+    u, s, vh = np.linalg.svd(F)
+    rotation_matrix = np.dot(u, vh)
+    if np.linalg.det(rotation_matrix) < 0:
+        u[:, -1] *= -1
+        rotation_matrix = np.dot(u, vh)
     rotmatrix = np.eye(3)
-    rotmatrix[:2, 0] = bb
-    rotmatrix[:2, 1] = bb_orto
+    rotmatrix[:2, :2] = rotation_matrix
     return rotmatrix
 
 
@@ -306,20 +303,29 @@ def displace_love2_2nd_dis(
         u0 = np.zeros(3)
         u, us = newton_raphson(x0=u0, n_iter=10, f=f, jacobian=jacobian, x=coords)
         result_u[i] = u
+
+        for i in range(len(us)):
+            uu = us[i]
+            uu = rt_inv.dot(uu.T).T
+            us[i] = uu
+
         all_us.append(np.stack(us))
 
     all_us = np.stack(all_us)  # (n atoms, timestep, 3)
     all_us = np.transpose(all_us, (1, 0, 2))  # (timestep, n atoms, 3)
+
     # Move to the previous system
     result_u = rt_inv.dot(result_u.T).T
     return result_u, all_us
 
 
-def update_dislocation(l0, d, ref_d, new_pos=None):
+def update_dislocation(l0, d, ref_d, new_pos=None, additional_rot_matrix=None):
     # Obroc dis_2 zgodnie z betami wyznaczonymi przez dis_1
     rot_matrix = get_rotation_matrix(l0, ref_d, d)
     # Obroc wektor burgersa dis_2 o macierz obrotu wynikajaca z dyslokacji dis_1
     db = rot_matrix[:2, :2].dot(d.b[:2]).squeeze()
+    if additional_rot_matrix is not None:
+        db = additional_rot_matrix.dot(d.b[:2]).squeeze()
     orig_norm = np.linalg.norm(d.b)
     # Zachowaj oryginalna dlugosc wektora
     db = db/np.linalg.norm(db)*orig_norm

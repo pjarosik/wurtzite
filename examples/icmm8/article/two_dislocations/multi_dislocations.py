@@ -4,8 +4,6 @@ from pathlib import Path
 import glob
 import visualization
 
-import wurtzite as wzt
-from wurtzite.model import DislocationDef
 from utils_1st import *
 from utils_2nd import *
 

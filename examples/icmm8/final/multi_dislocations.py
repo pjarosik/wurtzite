@@ -40,7 +40,7 @@ dis_1 = DislocationDef(
 )
 dis_2 = DislocationDef(
     b=[-1, 0, 0],
-    position=[23.88-3*3.811, 5.43, 7.5],
+    position=[12.947, 5.43, 7.5],
     plane=(0, 0, 1),
     label="$d_2$",
     color="brown"
@@ -89,7 +89,6 @@ dis_2 = dataclasses.replace(dis_2, b=dis_2_b)
 
 print(f"after: {dis_2.b}")
 
-
 # wyznacz nowa pozycje dis1
 new_d1_pos, new_d1s = displace_love2_2nd_dis(
     plane_d_x_y,
@@ -101,7 +100,7 @@ new_d1_pos, new_d1s = displace_love2_2nd_dis(
 
 new_d1, new_d1_rot = update_dislocation(
     l0, d=dis_1, ref_d=dis_2,
-    new_pos=dis_1.position + new_d1_pos.squeeze()
+    new_pos=dis_1.position + new_d1_pos.squeeze(),
 )
 u1, u1s = displace_love2_2nd_dis(
     plane_d_x_y,
@@ -116,7 +115,7 @@ wzt.visualization.plot_displacement(l2, u1)
 
 fig, ax = plt.subplots()
 l2 = wzt.generate.update_bonds(l2)
-wzt.visualization.plot_atoms_2d(l2, alpha=0.4, offset=3, fig=fig, ax=ax) #, plot_atom_nr=True)
+wzt.visualization.plot_atoms_2d(l2, alpha=1.0, offset=3, fig=fig, ax=ax) #, plot_atom_nr=True)
 
 # d2 laziness ...
 # dis_2 = dataclasses.replace(dis_2, position=dis_2.position + [])
