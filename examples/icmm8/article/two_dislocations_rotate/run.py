@@ -27,12 +27,12 @@ else:
 
 
 current_points = None
-def plot_function2(data, l, crystal_plane, fig, ax, alpha, points, xlim, ylim):
+def plot_function2(data, l, fig, ax, alpha, points, xlim, ylim):
     global current_points
     if len(data) == 6:
-        frame, d1, d2, u_atoms, u_crystal_plane, u_points = data
+        frame, d1, d2, u_atoms, crystal_plane, u_points = data
     else:
-        frame, d1, d2, u_atoms, u_crystal_plane = data
+        frame, d1, d2, u_atoms, crystal_plane = data
     print(f"Frame: {frame}")
     li = l.translate(u_atoms)
     li = wzt.generate.update_bonds(li)
@@ -73,11 +73,8 @@ def plot_function2(data, l, crystal_plane, fig, ax, alpha, points, xlim, ylim):
     # plt.quiver(crystal_plane_x, crystal_plane_y,
     #            u_crystal_plane[..., 0], u_crystal_plane[..., 1],
     #            color=wurtzite.visualization.vectors_to_rgb(u_crystal_plane[..., (0, 1)]))
-    crystal_plane_x = crystal_plane_x + u_crystal_plane[:, 0]
-    crystal_plane_y = crystal_plane_y + u_crystal_plane[:, 1]
+    ax.plot(crystal_plane_x, crystal_plane_y)
 
-    if frame > 0:
-        ax.plot(crystal_plane_x, crystal_plane_y)
     ax.set_title(f"Iteration: {frame}")
     if xlim is not None and ylim is not None:
         ax.set_xlim(xlim)
@@ -85,18 +82,18 @@ def plot_function2(data, l, crystal_plane, fig, ax, alpha, points, xlim, ylim):
     # plt.show()
 
 
-def animate_all(l, crystal_plane, d1s, d2s, u_atoms, u_crystal_planes,
+def animate_all(l, d1s, d2s, u_atoms, crystal_planes,
                 u_points=None, alpha=1.0, points=None, xlimits=None, ylimits=None,
                 frames=False):
     frames = np.arange(len(d1s))
     if u_points is not None:
-        data = list(zip(frames, d1s, d2s, u_atoms, u_crystal_planes, u_points))
+        data = list(zip(frames, d1s, d2s, u_atoms, crystal_planes, u_points))
     else:
-        data = list(zip(frames, d1s, d2s, u_atoms, u_crystal_planes))
+        data = list(zip(frames, d1s, d2s, u_atoms, crystal_planes))
     return wzt.visualization.create_animation_frames(
         data,
         lambda data, fig, ax: plot_function2(
-            data=data, fig=fig, ax=ax, l=l, crystal_plane=crystal_plane,
+            data=data, fig=fig, ax=ax, l=l,
             alpha=alpha, points=points, xlim=xlimits, ylim=ylimits),
         figsize=2*np.asarray((abs(xlimits[0]-xlimits[1]), abs(ylimits[0]-ylimits[1]))),
         output_dir=output_dir,
@@ -115,7 +112,7 @@ dis_1 = DislocationDef(
 
 dis_2 = DislocationDef(
     b=[1, 0, 0],
-    position= np.asarray(dis_1.position)+np.array([2*l0.cell.dimensions[0], 0.0, 0.0]),  # [23.88-2*3.811, 5.13, 7.5],
+    position= np.asarray(dis_1.position)+np.array([2.0*l0.cell.dimensions[0], 0.0, 0.0]),  # [23.88-2*3.811, 5.13, 7.5],
     plane=(0, 0, 1),
     label="$d_2$",
     color="brown"
@@ -153,18 +150,18 @@ current_points = points.copy()
 # points = np.asarray([2.876, 4.976, 0]).reshape(1, -1)
 
 # Run the displacement on the second dislocation
-d1s, d2s, u_atoms, u_crystal_plane, u_points, initial_crystal_plane = displace_all(
+d1s, d2s, u_atoms, crystal_planes, u_points = displace_all(
     crystal=l1,
     d1=dis_1, d2=dis_2,
     points=points,
-    n_iter=4,
+    n_iter=1,
 )
 
 
 # animate it
 anim = animate_all(
-    l1, initial_crystal_plane, d1s, d2s, u_atoms, u_crystal_plane, u_points,
+    l1, d1s, d2s, u_atoms, crystal_planes, u_points,
     points=points, alpha=0.5,
-    xlimits=(-2, 22), ylimits=(0, 12),
+    xlimits=(0, 20), ylimits=(0, 12),
 )
 
