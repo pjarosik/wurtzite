@@ -26,10 +26,11 @@ def plot_function(data, fig, ax, d1ab, d2ab, alpha, display_tees):
     if display_tees:
         wzt.visualization.display_tee_2d(ax, d=d1, scale=0.6, fontsize=10)
         wzt.visualization.display_tee_2d(ax, d=d2, scale=0.6, fontsize=10)
-        a, b = li.coordinates[d1ab[0]], li.coordinates[d1ab[1]]
-        plot_distances(ax, d1, a, b)
-        a, b = li.coordinates[d2ab[0]], li.coordinates[d2ab[1]]
-        plot_distances(ax, d2, a, b)
+        if d1ab is not None and d2ab is not None:
+            a, b = li.coordinates[d1ab[0]], li.coordinates[d1ab[1]]
+            plot_distances(ax, d1, a, b)
+            a, b = li.coordinates[d2ab[0]], li.coordinates[d2ab[1]]
+            plot_distances(ax, d2, a, b)
     ax.set_title(f"Iteration: {frame_nr}")
 
 
@@ -46,7 +47,8 @@ def animate(l0, d1, d2, us, new_d1s, d1ab, d2ab, d2_xoffset=None,
     d1s = []
     d2s = []
     for i in range(len(us)):
-        new_d1, _ = update_dislocation(l0, ref_d=d2, d=d1, new_pos=d1.position+new_d1s[i])
+        new_d1, _ = update_dislocation(l0, ref_d=d2, d=d1, new_pos=np.squeeze(d1.position))
+        new_d1.position[0] = new_d1.position[0] + new_d1s[i][0]
         new_d2, _ = update_dislocation(l0, ref_d=d1, d=d2)
         d1s.append(new_d1)
         d2s.append(new_d2)

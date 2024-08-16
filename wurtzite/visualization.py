@@ -2,6 +2,7 @@
 Crystal visualization toolkit. This module is intended to be used with Jupyter
 notebooks.
 """
+import dataclasses
 import math
 from typing import Tuple
 
@@ -171,6 +172,7 @@ class VtkVisualizer:
         self.resolution_per_atom = resolution_per_atom
         self.window_size = window_size
         self.n_ticks = n_ticks
+        self.show_axes = show_axes
 
     def render_molecule(self, molecule: wurtzite.model.Molecule):
         colors = vtk.vtkNamedColors()
@@ -205,7 +207,7 @@ class VtkVisualizer:
             atomic_number = atom.atomic_number
             radius = openbabel.GetVdwRad(int(atomic_number))
             # Color
-            rgb = (_ATOM_COLORS[atomic_number-1] * 255)
+            rgb = (get_atom_color_rgb(atomic_number) * 255)
             rgb = np.round(rgb).astype(int)
             r, g, b = rgb
             points.InsertNextPoint(atom_pos[0], atom_pos[1], atom_pos[2])
@@ -378,7 +380,8 @@ def _lighten_color(color, amount=1.0):
 
 
 def plot_atoms_2d(lattice, offset=5, figsize=None, xlim=None, ylim=None, xlabel=None, ylabel=None,
-                  alpha: float=1.0, fig=None, ax=None): 
+                  alpha: float=1.0, fig=None, ax=None, axis_font_size=14, start_z=None, end_z=None,
+                  highlighted_atoms=None):
     """
     Display the lattice on the 2D plane.
 
@@ -396,15 +399,27 @@ def plot_atoms_2d(lattice, offset=5, figsize=None, xlim=None, ylim=None, xlabel=
     :param offset: the offset to apply to the figure size, relative to the ($\AA$ units). 
     :return: matplotlib figure and axis with drawn atoms 
     """
+    if highlighted_atoms is None:
+        highlighted_atoms = {}
+
+    if start_z is not None:
+        new_coords = lattice.coordinates[np.logical_and(lattice.coordinates[:, 2] > start_z, lattice.coordinates[:, 2] < end_z)]
+        new_atomic_nrs = lattice.atomic_number[np.logical_and(lattice.coordinates[:, 2] > start_z, lattice.coordinates[:, 2] < end_z)]
+        lattice = dataclasses.replace(lattice, coordinates=new_coords, atomic_number=new_atomic_nrs, bonds=None)
+        lattice = wurtzite.generate.update_bonds(lattice)
+
     coords = lattice.coordinates
     radiuses = [openbabel.GetVdwRad(int(nr)) for nr in lattice.atomic_number]
-    colors = [get_atom_color_rgb(nr) for nr in lattice.atomic_number]
-    circles = [plt.Circle((x, y), r*0.2, color=_lighten_color(c, alpha), zorder=z) 
+    colors = [(1.0, 0.0, 0.0) if i in highlighted_atoms
+              else get_atom_color_rgb(nr)
+              for i, nr in enumerate(lattice.atomic_number)]
+    # -z => the atoms closes to the z = 0 are in the foreground
+    circles = [plt.Circle((x, y), r*0.2, color=_lighten_color(c, alpha), zorder=-z)
                for (x, y, z), r, c  in zip(coords, radiuses, colors)]
     bonds = [(coords[b[0]], coords[b[1]]) for b in lattice.bonds]
     # The offset was selected so that the bond is shown in the background of atoms.
     bond_offset = -0.5
-    lines = [matplotlib.lines.Line2D((bs[0], be[0]), (bs[1], be[1]), zorder=(bs[2]+be[2])/2+bond_offset, 
+    lines = [matplotlib.lines.Line2D((bs[0], be[0]), (bs[1], be[1]), zorder=-(bs[2]+be[2])/2+bond_offset,
                                      color=_lighten_color("black", alpha)) 
              for bs, be in bonds if not np.allclose(bs, be)] 
     if fig is None or ax is None:
@@ -533,13 +548,13 @@ def create_animation_2d(data, plot_function, figsize=None, interval=200):
 
 def create_animation_frames(data, plot_function, figsize=None, interval=200,
                             output_dir=".", output_format="svg", dpi=300,
-                            bbox_inches=None):
+                            bbox_inches="tight", file_prefix=""):
     Path(output_dir).mkdir(exist_ok=True, parents=True)
     for i, d in enumerate(data):
         fig, ax = plt.subplots()
         fig.set_size_inches(figsize)
         plot_function(data=d, fig=fig, ax=ax)
         ax.set_aspect("equal")
-        fig.savefig(os.path.join(output_dir, f"frame_{i:03d}.{output_format}"),
+        fig.savefig(os.path.join(output_dir, f"{file_prefix}frame_{i:03d}.{output_format}"),
                  dpi=dpi, bbox_inches=bbox_inches)
         plt.close(fig)

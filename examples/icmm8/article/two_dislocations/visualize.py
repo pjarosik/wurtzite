@@ -1,7 +1,5 @@
 import pickle
 import visualization
-import matplotlib.animation
-import matplotlib.pyplot as plt
 import sys
 
 dir_nr = sys.argv[1]
