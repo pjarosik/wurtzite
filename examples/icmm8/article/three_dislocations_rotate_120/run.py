@@ -2,6 +2,9 @@ import json
 import pickle
 from pathlib import Path
 import glob
+
+import matplotlib.pyplot as plt
+
 import visualization
 import sys
 
@@ -18,7 +21,7 @@ output_dir = sys.argv[1] # "two_dislocations_debug"
 
 if not Path("lattice.pkl").exists():
     l0 = wzt.generate.create_lattice(
-        dimensions=(10, 5, 2),
+        dimensions=(10, 8, 2),
         cell="B4_AlN",
     )
     pickle.dump(l0, open("lattice.pkl", "wb"))
@@ -100,21 +103,27 @@ def animate_all(l, d1s, d2s, u_atoms, crystal_planes,
         output_format="svg"
     )
 
-
-
 dis_1 = DislocationDef(
     b=[1, 0, 0],
-    position=[3.890+1.0*l0.cell.dimensions[0], 4.03+0.35, 7.5],
+    position=[3.890+3.0*l0.cell.dimensions[0], 4.03+0.35, 7.5],
     plane=(0, 0, 1),
     label="$d_1$",
     color="brown"
 )
-
+angle = 60
 dis_2 = DislocationDef(
-    b=[1, 0, 0],
-    position= np.asarray(dis_1.position)+np.array([2.0*l0.cell.dimensions[0], 0.0, 0.0]),  # [23.88-2*3.811, 5.13, 7.5],
+    b=[np.cos(angle/180*np.pi), np.sin(angle/180*np.pi), 0],
+    position= np.asarray(dis_1.position)+np.array([-1.0*l0.cell.dimensions[0]+3.5, 2.7*l0.cell.dimensions[1], 0.0]),  # [23.88-2*3.811, 5.13, 7.5],
     plane=(0, 0, 1),
     label="$d_2$",
+    color="brown"
+)
+
+dis_3 = DislocationDef(
+    b=[1, 0, 0],
+    position= np.asarray(dis_1.position)+np.array([-3.0*l0.cell.dimensions[0]-1.5, 2*l0.cell.dimensions[1]-0.5, 0.0]),  # [23.88-2*3.811, 5.13, 7.5],
+    plane=(0, 0, 1),
+    label="$d_3$",
     color="brown"
 )
 
@@ -154,14 +163,57 @@ d1s, d2s, u_atoms, crystal_planes, u_points = displace_all(
     crystal=l1,
     d1=dis_1, d2=dis_2,
     points=points,
-    n_iter=1,
+    n_iter=3,
 )
 
+l2 = l1.translate(u_atoms[-1])
+
+u2, all_us = displace_love2(
+    crystal=l2,
+    position=dis_3.position,
+    burgers_vector=dis_3.b,
+    plane=dis_3.plane,
+    bv_fraction=1.0,
+)
+
+l3 = l2.translate(u2)
+
+fig, ax = plt.subplots()
+
+wzt.visualization.plot_atoms_2d(l3, fig=fig, ax=ax, alpha=1.0, start_z=1, end_z=4)
+wzt.visualization.display_tee_2d(ax, d=dis_1, scale=0.6, fontsize=10)
+wzt.visualization.display_tee_2d(ax, d=dis_2, scale=0.6, fontsize=10)
+wzt.visualization.display_tee_2d(ax, d=dis_3, scale=0.6, fontsize=10)
+ax.set_aspect("equal")
+xlimits = (-1, 20)
+ylimits = (0, 20)
+ax.set_xlim(*xlimits)
+ax.set_ylim(*ylimits)
+fig.set_size_inches((0.85*7.5, 0.85*7.25))
+# fig.set_size_inches(2*np.asarray((abs(xlimits[0]-xlimits[1]), abs(ylimits[0]-ylimits[1]))))
+fig.savefig("three_dislocations_120.svg", dpi=300, bbox_inches="tight")
+# plt.show()
 
 # animate it
-anim = animate_all(
-    l1, d1s, d2s, u_atoms, crystal_planes, u_points,
-    points=points, alpha=0.5,
-    xlimits=(0, 20), ylimits=(0, 12),
-)
+# anim = animate_all(
+#     l1, d1s, d2s, u_atoms, crystal_planes, u_points,
+#     points=points,
+#     xlimits=(0, 25), ylimits=(0, 25),
+# )
 
+# u1, all_us = displace_love2(
+#     crystal=l0,
+#     position=dis_2.position,
+#     burgers_vector=dis_2.b,
+#     plane=dis_2.plane,
+#     bv_fraction=1.0,
+# )
+#
+# l2 = l0.translate(u1)
+# l2 = wzt.generate.update_bonds(l2)
+#
+# fig, ax = plt.subplots()
+# wzt.visualization.plot_atoms_2d(l2, fig=fig, ax=ax, alpha=1.0, start_z=1, end_z=4)
+# wzt.visualization.display_tee_2d(ax, d=dis_1, scale=0.6, fontsize=10)
+# wzt.visualization.display_tee_2d(ax, d=dis_2, scale=0.6, fontsize=10)
+# plt.show()

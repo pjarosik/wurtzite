@@ -38,7 +38,7 @@ def plot_function2(data, l, fig, ax, alpha, points, xlim, ylim):
     li = wzt.generate.update_bonds(li)
     wzt.visualization.plot_atoms_2d(li, fig=fig, ax=ax, alpha=alpha, start_z=1, end_z=4)
     wzt.visualization.display_tee_2d(ax, d=d1, scale=0.6, fontsize=10)
-    wzt.visualization.display_tee_2d(ax, d=d2, scale=0.6, fontsize=10)
+    # wzt.visualization.display_tee_2d(ax, d=d2, scale=0.6, fontsize=10)
 
     u_atoms[np.isclose(u_atoms, 0.0)] = 1e-5
     # if frame > 0:
@@ -52,14 +52,14 @@ def plot_function2(data, l, fig, ax, alpha, points, xlim, ylim):
     if frame > 0:
         # DO NOT display points in the initial configuration
         # Remove nans
-        # u_points[np.isclose(u_points, 0.0)] = 1e-5
-        # ax.quiver(
-        #     points[..., 0], points[..., 1],
-        #     u_points[..., 0], u_points[..., 1],
-        #     color=wurtzite.visualization.vectors_to_rgb(u_points[..., (0, 1)]),
-        #     scale=50
-        # )
-        # current_points += u_points
+        u_points[np.isclose(u_points, 0.0)] = 1e-5
+        ax.quiver(
+            points[..., 0], points[..., 1],
+            u_points[..., 0], u_points[..., 1],
+            color=wurtzite.visualization.vectors_to_rgb(u_points[..., (0, 1)]),
+            scale=40
+        )
+        current_points += u_points
         pass
 
     # # vector lengths
@@ -95,7 +95,7 @@ def animate_all(l, d1s, d2s, u_atoms, crystal_planes,
         lambda data, fig, ax: plot_function2(
             data=data, fig=fig, ax=ax, l=l,
             alpha=alpha, points=points, xlim=xlimits, ylim=ylimits),
-        figsize=2*np.asarray((abs(xlimits[0]-xlimits[1]), abs(ylimits[0]-ylimits[1]))),
+        figsize=(5, 7),
         output_dir=output_dir,
         output_format="svg"
     )
@@ -138,8 +138,8 @@ l1 = wzt.generate.update_bonds(l1)
 
 # Displacement field sampling points
 n_points = 40
-x = np.linspace(0, 20, n_points)
-y = np.linspace(2.5, 7.5, n_points)
+x = np.linspace(0, 10, n_points)
+y = np.linspace(0, 7.5, n_points)
 xv, yv = np.meshgrid(x, y)
 points = np.vstack([xv.ravel(), yv.ravel()]).T
 zeros = np.zeros((points.shape[0], 1))
@@ -154,7 +154,7 @@ d1s, d2s, u_atoms, crystal_planes, u_points = displace_all(
     crystal=l1,
     d1=dis_1, d2=dis_2,
     points=points,
-    n_iter=1,
+    n_iter=2,
 )
 
 
@@ -162,6 +162,6 @@ d1s, d2s, u_atoms, crystal_planes, u_points = displace_all(
 anim = animate_all(
     l1, d1s, d2s, u_atoms, crystal_planes, u_points,
     points=points, alpha=0.5,
-    xlimits=(0, 20), ylimits=(0, 12),
+    xlimits=(2, 9), ylimits=(2, 7),
 )
 

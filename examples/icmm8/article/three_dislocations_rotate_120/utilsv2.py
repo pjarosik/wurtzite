@@ -3,6 +3,7 @@ import pickle
 from pathlib import Path
 import glob
 
+import matplotlib.pyplot as plt
 import scipy.integrate
 
 import visualization
@@ -12,6 +13,11 @@ from wurtzite.model import DislocationDef
 from utils_1st import *
 from utils_2nd import *
 
+
+ANGLE = 60/180*np.pi
+
+# DIS_A_GLOBAL = np.asarray([np.cos(ANGLE), np.sin(ANGLE), 0])
+DIS_A_GLOBAL = np.asarray([1, 0, 0])
 
 
 # TODO czy obracac poczatkowe dyslokacje (teowniki), czy obracac obecny? -- na razie obracane sa poczatkowe dyslokacje
@@ -69,7 +75,8 @@ def get_rotation_matrix(l0, dis_a, dis_b_pos, debug=False):
 
     # TODO upewnic sie, ze ponizsze ma sens
     # ba = dis_a.b[:2]
-    ba = np.asarray([1.0, 0.0])
+    ba = np.asarray(DIS_A_GLOBAL)[:2]
+    print(f"DIS A BA: {ba}")
 
     ba_rotated = F.dot(ba)
     ba = ba_rotated / np.linalg.norm(ba_rotated)
@@ -388,8 +395,8 @@ def get_total_beta(x, y, l, d1_local, d2_local, d1_rt, d2_rt, enable_beta2=True)
     # DEBUG
     betas = betas[0]
     F_inv = np.eye(2) - betas
-    if x == 0.0:
-        print(f"p: {p}, BETA 2: {F_inv[1, 0]}, {F_inv[1, 1]}")
+    # if x == 0.0:
+    #     print(f"p: {p}, BETA 2: {F_inv[1, 0]}, {F_inv[1, 1]}")
 
     return np.asarray([F_inv[1, 0]/F_inv[1, 1]])
 
@@ -404,16 +411,7 @@ def get_cp_integral(l, y_start, d1_local, d2_local, d1_rt, d2_rt, enable_beta2=T
             d1_rt=d1_rt, d2_rt=d2_rt, l=l, enable_beta2=enable_beta2
         )
     be, bz = get_be_bz(l.cell, d2_local.b)
-
-    # ystart = 0.25*be
     y0 = y_start
-    # y0 = 2.0
-
-    # ode_res = scipy.integrate.solve_ivp(func, t_span=(0, -20), y0=[y0], method="BDF")
-    # ode_res2 = scipy.integrate.solve_ivp(func, t_span=(0, 2), y0=[y0], method="BDF")
-
-    # print(d1_local.position)
-
     ode_res = scipy.integrate.solve_ivp(func, t_span=(np.squeeze(d1_local.position)[0], -15), y0=[y_start], method="BDF")
     ode_res2 = scipy.integrate.solve_ivp(func, t_span=(np.squeeze(d1_local.position)[0], 2), y0=[y_start], method="BDF")
 
@@ -422,10 +420,6 @@ def get_cp_integral(l, y_start, d1_local, d2_local, d1_rt, d2_rt, enable_beta2=T
     np1, np2 = len(ode_res.t), len(ode_res2.t)
     n_points = np1 + np2
     result = np.zeros((n_points, 3))
-
-    # print("ODE res left: ")
-    # print(ode_res.t)
-    # print(-ode_res.y+y0)
 
     # left side
     result[:np1, 0] = np.flip(np.squeeze(ode_res.t))
@@ -436,25 +430,10 @@ def get_cp_integral(l, y_start, d1_local, d2_local, d1_rt, d2_rt, enable_beta2=T
     result[np1:, 1] = -ode_res2.y
 
     result[:, 1] = result[:, 1] - np.max(result[:, 1]) + d1_local_y + y0
-    # xs = [d1_local.position[0]]
-    # ys = [y0]
-    # dx = 0.1
-    # for i in range(200):
-    #     new_x = xs[-1] + dx
-    #     new_y = func(t=new_x, y=ys[-1]) + ys[-1]
-    #     new_y = np.squeeze(new_y)
-    #     xs.append(new_x)
-    #     ys.append(new_y)
-    #
-    # result = np.zeros((len(xs), 3))
-    # print(result.shape)
-    # print(len(ys))
-    # result[:, 0] = np.asarray(xs)
-    # result[:, 1] = -np.asarray(ys) + y0
     return result
 
 
-def find_cp_integral(l, d1_local, d2_local, d1_rt, d2_rt, y0_range=(-1, 1), npoints=100):
+def find_cp_integral(l, d1_local, d2_local, d1_rt, d2_rt, y0_range=(-5, 5), npoints=200):
     y0s = np.linspace(y0_range[0], y0_range[1], npoints)
     planes = []
     for y0 in y0s:
@@ -505,37 +484,67 @@ def displace_all(
 
     burgers_vector = np.asarray(d2_global.b)
     plane = np.asarray(d2_global.plane)
-    rt = wzt.dislocations._get_rotation_tensor(
-        burgers_vector=burgers_vector,
-        plane=plane,
-        cell=cell
-    )
-    rt_inv = np.transpose(rt)
+    # rt = wzt.dislocations._get_rotation_tensor(
+    #     burgers_vector=burgers_vector,
+    #     plane=plane,
+    #     cell=cell
+    # )
+    # rt = np.eye(3)
+    #
+    # rt_x = np.asarray(d2_global.b).squeeze()
+    # rt_x = rt_x / np.linalg.norm(rt_x)
+    # rt_y = rt_x[:2] @ np.asarray([
+    #     [0, -1],
+    #     [1,  0],
+    # ])
+    # rt_y = rt_y / np.linalg.norm(rt_y)
+    # rt[:, 0] = d2_global.b
+    # rt[:2, 1] = rt_y
+
+    rt = np.array([
+        [np.cos(-ANGLE), -np.sin(-ANGLE), 0],
+        [np.sin(-ANGLE), np.cos(-ANGLE), 0],
+        [0, 0, 1]])
+
+    print(f"Rotation tensor")
+    print(rt)
+    print(f"Rotation tensor inverse")
+    rt_inv = np.linalg.inv(rt)
+    print(rt_inv)
 
     position = position.reshape(-1, 1)
-    cd = rt.dot(position).squeeze()  # (3, )
+    cd = position.squeeze()  # rt.dot(position).squeeze()  # (3, )
 
     # crystal_plane_orig = crystal_plane.copy()
     
     def _preprocess(x):
-        x = rt.dot(x.T).T
         x = x - cd.reshape(1, -1)
+        x = rt.dot(x.T).T
         return x
 
+    # def _preprocess_points(x):
+    #     x = x - cd.reshape(1, -1)
+    #     x = rt.dot(x.T).T
+    #     return x
 
     def _postprocess(u):
         return rt_inv.dot(u.T).T
 
-
     def _postprocess_points(x):
-        x = x+cd.reshape(1, -1)
-        return rt_inv.dot(x.T).T
+        x = rt_inv.dot(x.T).T
+        x = x + cd.reshape(1, -1)
+        return x
 
     # W UKLADZIE WSPOLRZEDNYCH DRUGIEJ DYSLOKACJI
     atoms_orig = _preprocess(crystal.coordinates.copy())  # (n atoms, 3)
     d1_pos_orig = _preprocess(np.array(d1.position).reshape(1, 3))  # (1, 3)
+    print(f"ROTATION TENSOR: {rt}")
+    print(f"BEFORE PREPROCESS: {d1.position}")
+    print(f"AFTER PREPROCESS: {d1_pos_orig}")
+
     # crystal_plane_orig = crystal_plane_orig-cd.reshape(1, -1)  # (n plane points, 3)
     # crystal_plane_orig = _preprocess(crystal_plane_orig.copy())  # (n plane points, 3)
+
     if points is not None:
         points_orig = _preprocess(points.copy())  # (n points, 3)
 
@@ -568,6 +577,15 @@ def displace_all(
         l=crystal, d1_local=d1_current_local, d2_local=d2_local,
         d1_rt=d1_rt_current, d2_rt=d2_rt,
     )
+
+    # cpp = np.zeros((20, 3))
+    # cpp[:, 0] = np.linspace(-15, 5, 20)
+
+    # plt.plot(d1_current_local.position[..., 0], d1_current_local.position[..., 1], "-ro")
+    # plt.plot(d2_local.position[0], d2_local.position[1], "-go")
+    # plt.plot(cpp[..., 0], cpp[..., 1])
+    # plt.gca().set_aspect("equal")
+    # plt.show()
     crystal_planes.append(_postprocess_points(cpp.copy()))
 
     # Rotate d2 to align with the detected crystal plane
@@ -636,6 +654,14 @@ def displace_all(
             l=crystal, d1_local=d1_current_local, d2_local=d2_local,
             d1_rt=d1_rt_current, d2_rt=d2_rt,
         )
+
+        # plt.plot(d1_current_local.position[..., 0],
+        #          d1_current_local.position[..., 1], "-ro")
+        # plt.plot(d2_local.position[0], d2_local.position[1], "-go")
+        # plt.plot(cpp[..., 0], cpp[..., 1])
+        # plt.gca().set_aspect("equal")
+        # plt.show()
+
         # print("CPP x")
         # print(cpp[:, 0])
         # print("CPP y")

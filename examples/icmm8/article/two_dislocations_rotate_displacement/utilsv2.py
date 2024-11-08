@@ -675,7 +675,7 @@ def displace_all(
                     debug=False
                 )
             def u_func_points(u, x):
-                return f_points(crystal, u, x, crystal_plane=crystal_plane_current, d2=d2_local, debug=False, rotate=False, d1_local=d1_current_local,
+                return f_points(crystal, u, x, crystal_plane=crystal_plane_current, d2=d2_local, debug=False, rotate=True, d1_local=d1_current_local,
                                 d1_rt=d1_rt_current, d2_rt=d2_rt)
             u_points_current = step_newton_raphson(u_points_current, f=u_func_points, jacobian=jac_points, lr=lr, x=points_orig)
 

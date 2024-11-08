@@ -415,7 +415,7 @@ def get_cp_integral(l, y_start, d1_local, d2_local, d1_rt, d2_rt, enable_beta2=T
     # print(d1_local.position)
 
     ode_res = scipy.integrate.solve_ivp(func, t_span=(np.squeeze(d1_local.position)[0], -15), y0=[y_start], method="BDF")
-    ode_res2 = scipy.integrate.solve_ivp(func, t_span=(np.squeeze(d1_local.position)[0], 2), y0=[y_start], method="BDF")
+    ode_res2 = scipy.integrate.solve_ivp(func, t_span=(np.squeeze(d1_local.position)[0], 8), y0=[y_start], method="BDF")
 
     d1_local_y = d1_local.position[..., 1]
 
