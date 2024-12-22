@@ -156,7 +156,7 @@ d1s, d2s, u_atoms, u_crystal_plane, u_points, initial_crystal_plane = displace_a
     crystal=l1,
     d1=dis_1, d2=dis_2,
     # points=points,
-    n_iter=8,
+    n_iter=10,
     lr=0.2
 )
 
