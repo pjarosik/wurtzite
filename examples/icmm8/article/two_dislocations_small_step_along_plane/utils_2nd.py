@@ -125,13 +125,13 @@ def get_F(betas):
     return F_full
 
 
-def get_crystal_plane(l0, dis_a, dis_b_pos, xlim=(-100, 100), ylim=(-100, 100), nx=20000, ny=20000):
+def get_crystal_plane(l0, dis_a, position, xlim=(-100, 100), ylim=(-100, 100), nx=20000, ny=20000):
     """
     Returns crystal plane. dis_a "generates" (distorts) the crystal plane. The y0 is selected in a way
     that dis_b is included in the crystal plane. 
     The coordinates of the crystal plane are in the global  
     """
-    y0 = get_crystal_surface_y0(l0, dis_a, dis_b_pos[:2])
+    y0 = get_crystal_surface_y0(l0, dis_a, position[:2])
     bv_angstrom = l0.cell.to_cartesian_indices(dis_a.b)
     plane_d_x, plane_d_y = wurtzite.dislocations.get_crystal_surface_oxy(
         position=dis_a.position, x0=0.0, y0=y0, xlim=xlim, ylim=ylim, nx=nx,
@@ -205,7 +205,7 @@ def get_love_compensation(plane_d_x_y, dis_b, point):
     return rd, delta
 
 
-def love_polar(x: Tuple[float, float], be: float, bz: float) -> np.ndarray:
+def love_polar(x: np.ndarray, be: float, bz: float) -> np.ndarray:
     """
     Calculates love function.
 

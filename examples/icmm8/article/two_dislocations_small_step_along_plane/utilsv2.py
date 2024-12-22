@@ -1,13 +1,19 @@
 import json
+import os.path
 import pickle
+import time
 from pathlib import Path
 import glob
+
+import numpy as np
+
 import visualization
 
 import wurtzite as wzt
 from wurtzite.model import DislocationDef
 from utils_1st import *
 from utils_2nd import *
+import pickle
 
 
 
@@ -107,6 +113,13 @@ def get_d0(crystal_plane, point):
 def get_love_compensation(crystal_plane, point, debug=False):
     # Crystal plane zaczepiona powinna byc w dis_b!
     vd0 = get_d0((crystal_plane[:, 0], crystal_plane[:, 1]), point=point)
+    if debug:
+        import matplotlib.pyplot as plt
+        plt.plot(crystal_plane[:, 0], crystal_plane[:, 1])
+        plt.plot(vd0[0], vd0[1], '-ro')
+        plt.plot(point[0], point[1], '-bo')
+        plt.plot(0, 0, '-go')
+        plt.show()
 
     vd0_r, vd0_theta = to_polar(vd0)
     vd = np.asarray(point)
@@ -234,8 +247,56 @@ def broadcast_eye(n, nrepeats):
     return np.array([np.eye(n)]*nrepeats)
 
 
+def convert_to_cp_distance(x, u, cp, direction, debug=False):
+    """
+    Returns the first point of the cp that exceeds the distance determined by the given x.
+    """
+    x = x.reshape(-1, 3)
+
+    def nnorm(a, b):
+        v = np.sum((a-b)**2, axis=1)
+        v = np.sqrt(v)
+        return v
+
+
+    target_distance = np.linalg.norm(u[:2])
+    # Find the cp point that is closest to the given atom
+    # cp: (n points, 3)
+    cp_x_dist = nnorm(x[:, :2], cp[:, :2])
+
+    if debug:
+        print(f"Minimum distance: {np.min(cp_x_dist)}")
+
+    closest_point = np.argmin(cp_x_dist.squeeze())
+    # find the shortest distance
+    current_distance = 0
+    current_point = closest_point
+
+    if direction == 1:
+        # to the right
+        r = range(closest_point, cp.shape[0]-1)
+    else:
+        # to the left
+        r = range(closest_point, 1, -1)
+
+    for i in r:
+        current_distance += nnorm(cp[i+1, :2].reshape(1, 2), cp[i, :2].reshape(1, 2))
+        current_point = cp[i+direction]
+
+        if debug:
+            print(f"current distance: {current_distance}, target_distance: {target_distance}, current_point: {current_point}")
+
+        if current_distance > target_distance:
+            result = current_point.squeeze()-x.squeeze()
+            result[-1] = 0
+            return result
+    raise ValueError("Couldn't find appropriate distance")
+
+
+initial_atom_position = None
+
 # VALUE FUNCTION AND JACOBIAN FOR ITERATING ATOMS, POINTS AND DISLOCATION POSITIONS
-def f_points(crystal, u, x, crystal_plane, d2, debug=False):
+def f_points(crystal, u, x, crystal_plane, d2, cp_atoms=None, debug=False):
     current_x = x + u
     current_x = current_x.reshape(-1, 3)
     us = []
@@ -245,35 +306,51 @@ def f_points(crystal, u, x, crystal_plane, d2, debug=False):
         #     r, _ = to_polar(p)  # Intentionally ignoring delta -- should be 0
         #     theta = 0.0
         #     new_u = love_polar((r, theta), be=be, bz=bz)
-        #     # Intentially setting ux and uz to 0 for crystal plane (should be 0, not the b/2)
+        #     # Intentionally setting ux and uz to 0 for crystal plane (should be 0, not the b/2)
         #     new_u[0] = 0.0  # -be
         #     new_u[2] = 0.0
         # else:
         rd, delta_d = get_love_compensation(crystal_plane, point=p, debug=debug)
         new_u = love_polar((rd, delta_d), be=be, bz=bz)
+        if cp_atoms is not None: #  and not np.linalg.norm(np.asarray(p).squeeze()[:2]-np.asarray(d2.position).squeeze()[:2]) < 5:
+            closest_cp_point = np.argmin(np.abs((crystal_plane[:, 0] - p[0])).squeeze())
+            closest_cp_point = crystal_plane[closest_cp_point]
+            direction = 1 if closest_cp_point[1] < p[1] else -1
+            # It should be relative to the beginning!
+            new_u = convert_to_cp_distance(p, new_u, cp_atoms[i], direction=direction)
+        # new_u = p - new_p = x + u_tp1 - x - u_t = u_tp1-u_t
+        # and we would like to have u_tp1?
+        # ACTUALLY, we need to produce u - f(X + u) in the end.
+        # So it means, here we have to have u_tp1-u_t = new_u
         us.append(new_u)
-        if i in {89}:
+        if i in {93}:
+            global initial_atom_position
+            if initial_atom_position is None:
+                initial_atom_position = p
             print(f"Atom {i}: current_pos: {p}, displacement: {new_u}")
             import matplotlib.pyplot as plt
             import time
-            plt.figure(figsize=(5, 2))
+            plt.figure(figsize=(10, 4))
             r02 = RADIUS_FACTOR * be ** 2
             u_y_log = - be / (8 * np.pi * (1 - NU)) * ((1.0 - 2 * NU) * np.log(rd**2 / r02))
-            print(f"DETLTA: rad: {delta_d}, deg: {delta_d*180/np.pi}")
+            print(f"DELTA: rad: {delta_d}, deg: {delta_d*180/np.pi}")
             u_y_sin = - be / (8 * np.pi * (1 - NU)) * (-2*(np.sin(delta_d) ** 2))
-
             plt.plot(crystal_plane[:, 0], crystal_plane[:, 1])
+            plt.plot(cp_atoms[i][:, 0], cp_atoms[i][:, 1])
+            plt.scatter(initial_atom_position[0], initial_atom_position[1], color="grey", s=75, label="$initial$")
             plt.scatter(p[0]+new_u[0], p[1]+new_u[1], color="red", s=75, label="$f_y$")
-            plt.scatter(p[0]+new_u[0], p[1]+u_y_sin, color="green", s=50, label="$f_{y, sin}$")
-            plt.scatter(p[0]+new_u[0], p[1]+u_y_log, color="blue", s=50, label="$f_{y, log}$")
+            # plt.scatter(p[0]+new_u[0], p[1]+new_u[1], color="red", s=75, label="$f_y$")
+            # plt.scatter(p[0]+new_u[0], p[1]+u_y_sin, color="green", s=50, label="$f_{y, sin}$")
+            # plt.scatter(p[0]+new_u[0], p[1]+u_y_log, color="blue", s=50, label="$f_{y, log}$")
             plt.scatter(0, 0)
             plt.xlim(-20, 0)
             plt.ylim(-0.5, 1.5)
-            plt.legend()
+            # plt.legend()
             plt.savefig(f"oo_{time.time_ns()}.png")
-
     new_u = np.stack(us)
-    return u - new_u
+    # u - f(x + u)
+    result = u - new_u
+    return result
 
 
 def jacobian_points_inv(crystal, u, x, d1_rt, d2_rt, d1, d2, debug=False):
@@ -283,7 +360,7 @@ def jacobian_points_inv(crystal, u, x, d1_rt, d2_rt, d1, d2, debug=False):
     betas_1 = get_betas(crystal, d1, current_x.reshape(-1, 3), d1_rt, debug=debug)
     betas_2 = get_betas(crystal, d2, current_x.reshape(-1, 3), d2_rt, debug=debug)
     betas = betas_1 + betas_2
-    F_inv = (broadcast_eye(2, betas.shape[0]) - betas)
+    F_inv = np.linalg.inv(broadcast_eye(2, betas.shape[0]) - betas)
     ones = broadcast_eye(3, betas.shape[0])
     ones[:, :2, :2] = F_inv
     return ones
@@ -312,16 +389,19 @@ def f_crystal_plane(crystal, u, x, d2):
 def jacobian_crystal_plane(*args, **kwargs):
     return jacobian_points_inv(*args, **kwargs)
 
-def get_cp(l, d1, d2):
-    # d1, d2: global coordinate system
-    crystal_plane, y0 = get_crystal_plane(l, d1, d2, ylim=(-50, 50), ny=10000)
+
+def get_cp(l, d1, position):
+    """
+    Returns crystal plane points
+    """
+    # d1, position: global coordinate system
+    start = time.time()
+    crystal_plane, y0 = get_crystal_plane(l, d1, position, ylim=(-50, 50), ny=10000)
     cp = np.zeros((len(crystal_plane[0]), 3))  # (n plane points, 3)
     cp[:, 0] = crystal_plane[0]  # x
     cp[:, 1] = crystal_plane[1]  # y
+    print(f"Execution time: {time.time() - start}")
     return cp
-
-
-def get_cp_for_point():
 
 
 def displace_all(
@@ -329,13 +409,25 @@ def displace_all(
         d1, d2,
         points=None,
         n_iter=3,
-        lr=1.0
+        lr=1.0,
+        regenerate=False
 ) -> Tuple[np.ndarray, np.ndarray]:
     # Wszystkie punkty z _orig -- punkty poczatkowe, ze wspolrzednymi w ukladzie wspolrzednych zaczepionym w dis_2
     # rotate dis2 according to dis1
     # dis_2_rt: macierz obrotu drugiej dyslokacji po uwzglednieniu
-    # bet z pierwszej dyslokacji
-    crystal_plane = get_cp(crystal, d1=d1, d2=d2)
+    # bet z pierwszej dyslokacja
+    crystal_plane = get_cp(crystal, d1=d1, position=d2.position)
+    
+    if not os.path.exists("cps.pkl") or regenerate:
+        print(f"n atoms = {len(crystal.coordinates)}")
+        crystal_plane_atoms = [
+            get_cp(crystal, d1=d1, position=c)
+            for c in crystal.coordinates
+        ]
+        pickle.dump(crystal_plane_atoms, open("cps.pkl", "wb"))
+    else:
+        crystal_plane_atoms = pickle.load(open("cps.pkl", "rb"))
+
     dis_2_bv, d2_rt = rotate_dis(
         crystal,
         d1,
@@ -381,6 +473,8 @@ def displace_all(
     d1_pos_orig = _preprocess(np.array(d1.position).reshape(1, 3))  # (1, 3)
     # crystal_plane_orig = crystal_plane_orig-cd.reshape(1, -1)  # (n plane points, 3)
     crystal_plane_orig = _preprocess(crystal_plane_orig.copy())  # (n plane points, 3)
+    crystal_plane_atoms_orig = [_preprocess(cp) for cp in crystal_plane_atoms]
+
     if points is not None:
         points_orig = _preprocess(points.copy())  # (n points, 3)
 
@@ -409,6 +503,10 @@ def displace_all(
     # prepend with initial state (i.e. the first element of each list is the initial state).
     d1_current_local = dis_1_orig
     crystal_plane_current = crystal_plane_orig
+
+    crystal_plane_atoms_orig = np.stack(crystal_plane_atoms_orig)
+
+    previous_displacement = np.asarray([0, 0, 0]).reshape(1, -1)
     
     for i in range(1, n_iter+1):
         print(f"Iteration {i}")
@@ -420,7 +518,7 @@ def displace_all(
             return jacobian_points_inv(crystal, u, x, d1_rt=None, d2_rt=d2_rt, d1=d1_current_local, d2=d2_local)
 
         def u_func(u, x):
-            return f_points(crystal, u, x, crystal_plane=crystal_plane_current, d2=d2_local)
+            return f_points(crystal, u, x, crystal_plane=crystal_plane_current, d2=d2_local, cp_atoms=None)
             
         # - Determine the new position
         u_d1_current = step_newton_raphson(u_d1_current, f=u_func, jacobian_inv=jac, lr=lr, x=d1_pos_orig)
@@ -453,13 +551,27 @@ def displace_all(
         def u_func_cp(u, x):
             return f_crystal_plane(crystal, u, x, d2=d2_global)
 
+        #################### MOVE ALL THE crystal planes and POINTS ACCORDING TO THE d1 displacement
+        uuu = u_d1_current.reshape(1, -1)-previous_displacement
+        # print(f"uuu: {uuu}, current: {u_d1_current}")
+        crystal_plane_atoms_orig += uuu
+        atoms_orig += uuu
+        global initial_atom_position
+        if initial_atom_position is not None:
+            x = initial_atom_position.reshape(1, -1)
+            x += uuu
+            initial_atom_position = x.squeeze()
+
+        previous_displacement = u_d1_current
+        ####################
+
         # Wydaje sie nie dawac dobrego rozwiazania
         # Wyznacz polozenia atomow
         # u_crystal_plane_current = step_newton_raphson(
         #     u_crystal_plane_current, f=u_func_cp, jacobian=jac_cp, lr=lr,
         #     x=crystal_plane_orig
         # )
-        cpp = get_cp(crystal, d1=d1_current_global, d2=d2_global)
+        cpp = get_cp(crystal, d1=d1_current_global, position=d2_global.position)
         # # UWAGA: cpp jest w globalnym ukladzie wspolrzednych
         u_crystal_plane_current = cpp-crystal_plane
 
@@ -478,24 +590,12 @@ def displace_all(
             )
 
         def u_func(u, x):
-            d2_u = f_points(crystal, u, x, crystal_plane=crystal_plane_current, d2=d2_local)
-
-            # Move the center to the d1
-            d1_local_d1 = dataclasses.replace(
-                d1_current_local,
-                # b=np.asarray([1.0, 0, 0]),
-                position=[0.0, 0, 0]
-            )
-            d1_local_d1_pos = d1_current_local.position.reshape(1, -1)
-            print(f"d1 local position: {d1_local_d1_pos}")
-            x_local_d1 = x-d1_local_d1_pos
-            crystal_plane_current_local_d1 = crystal_plane_current-d1_local_d1_pos
-            d1_u = f_points(crystal, u, x_local_d1, crystal_plane=crystal_plane_current_local_d1, d2=d1_local_d1)
-
-            return d1_u # d2_u # d1_u # + d2_u
-
+            return f_points(crystal, u, x, crystal_plane=crystal_plane_current, d2=d2_local,
+                            cp_atoms=crystal_plane_atoms_orig)
         # ATOMS
-        u_atoms_current = step_newton_raphson(u_atoms_current, f=u_func, jacobian_inv=jac, lr=lr, x=atoms_orig)
+        u_atoms_current = step_newton_raphson(
+            u_atoms_current, f=u_func, jacobian_inv=jac, lr=lr, x=atoms_orig
+        )
 
         # OTHER POINTS
         if points is not None:
@@ -510,7 +610,7 @@ def displace_all(
                     debug=False
                 )
             def u_func_points(u, x):
-                return f_points(crystal, u, x, crystal_plane=crystal_plane_current, d2=d2_local, debug=False)
+                return f_points(crystal, u, x, crystal_plane=crystal_plane_current, d2=d2_local, debug=False, cp_atoms=None)
             u_points_current = step_newton_raphson(u_points_current, f=u_func_points, jacobian_inv=jac_points, lr=lr, x=points_orig)
 
         # Store
@@ -522,7 +622,16 @@ def displace_all(
         dis_1s.append(dataclasses.replace(d1_current_local, position=np.squeeze(d1.position + _postprocess(u_d1_current))))
         dis_2s.append(copy.deepcopy(d2_global))
 
+    # Displacement of the displayed layer, relative to the first iteration.
+    u_crystal_plane_atoms = []
+    u_crystal_plane_atoms.append(np.zeros_like(dis_1s[0].position))
+    for i, d in enumerate(dis_1s[1:]):
+        u_crystal_plane_atoms.append(d.position-dis_1s[0].position)
+
+    u_crystal_plane_atoms = np.stack(u_crystal_plane_atoms)
+    u_crystal_plane_atoms = u_crystal_plane_atoms.reshape(-1, 1, 3)
+
     if points is not None:
-        return dis_1s, dis_2s, u_atoms, u_crystal_planes, u_points, crystal_plane
+        return dis_1s, dis_2s, u_atoms, u_crystal_planes, u_points, crystal_plane, crystal_plane_atoms, u_crystal_plane_atoms
     else:
-        return dis_1s, dis_2s, u_atoms, u_crystal_planes, None, crystal_plane
+        return dis_1s, dis_2s, u_atoms, u_crystal_planes, None, crystal_plane, crystal_plane_atoms, u_crystal_plane_atoms
