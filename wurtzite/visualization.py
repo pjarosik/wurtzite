@@ -163,9 +163,11 @@ class VtkVisualizer:
             self,
             window_size: Tuple[int, int] = (400, 400),
             resolution_per_atom: float = 600000.0,
-            background_color: str = "SlateGray",
+            background_color: str = "White",
             n_ticks: int = 10,
-            show_axes=True
+            show_axes=True,
+            show_atom_indices=False,
+            measurements=None
     ):
         self.geom_pane = None
         self.background_color = background_color
@@ -173,6 +175,34 @@ class VtkVisualizer:
         self.window_size = window_size
         self.n_ticks = n_ticks
         self.show_axes = show_axes
+        self.show_atom_indices = show_atom_indices
+        self.measurements = measurements
+
+
+    def pan_camera(self, delta):
+        cam = self.geom_pane.camera
+        pos = cam["position"]
+        focal = cam["focalPoint"]
+
+        new_pos = [pos[0] + delta[0], pos[1] + delta[1], pos[2] + delta[2]]
+        new_focal = [focal[0] + delta[0], focal[1] + delta[1], focal[2] + delta[2]]
+
+        self.geom_pane.camera = {
+            "position": new_pos,
+            "focalPoint": new_focal,
+            "viewUp": cam["viewUp"]
+        }
+
+    def set_camera_position(self, position, focal):
+        cam = self.geom_pane.camera
+        self.geom_pane.camera = {
+            "position": position,
+            "focalPoint": focal,
+            "viewUp": cam["viewUp"]
+        }
+
+    def set_camera(self, camera):
+        self.geom_pane.camera = camera
 
     def render_molecule(self, molecule: wurtzite.model.Molecule):
         colors = vtk.vtkNamedColors()
@@ -288,6 +318,35 @@ class VtkVisualizer:
             bond.GetProperty().SetSpecularColor(colors.GetColor3d("White"))
             self.renderer.AddActor(bond)
 
+
+        if self.show_atom_indices:
+
+            self.text_objects = []
+            for i in range(len(molecule.coordinates)):
+                text_source = vtk.vtkVectorText()
+                text_source.SetText(f"{i}")
+                text_mapper = vtk.vtkPolyDataMapper()
+                text_mapper.SetInputConnection(text_source.GetOutputPort())
+
+                text_actor = vtk.vtkFollower()
+                text_actor.SetMapper(text_mapper)
+                text_actor.SetScale(0.2, 0.2, 0.2)
+
+
+                coords = molecule.coordinates[i]
+
+                text_actor.SetPosition(coords[0], coords[1], coords[2])
+                text_actor.GetProperty().SetColor(1.0, 0.0, 0.0)
+
+
+                self.renderer.AddActor(text_actor)
+                self.text_objects.append((text_source, text_mapper, text_actor))
+
+            self.renderWindow.Render()
+            camera = self.renderer.GetActiveCamera()
+            for _, _, text_actor in self.text_objects:
+                text_actor.SetCamera(camera)
+
         xs = molecule.coordinates[:, 0]
         ys = molecule.coordinates[:, 1]
         zs = molecule.coordinates[:, 2]
@@ -324,13 +383,16 @@ class VtkVisualizer:
         else:
             axes = None
 
+
+
         self.geom_pane = pn.pane.VTK(
             self.renderWindow,
             width=self.window_size[0],
             height=self.window_size[1],
             orientation_widget=True,
+            # interactive_orientation_widget=True,
             axes=axes,
-            enable_keybindings=True
+            # enable_keybindings=True
         )
         return self.geom_pane
 

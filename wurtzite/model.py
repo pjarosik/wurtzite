@@ -90,6 +90,17 @@ class Molecule:
             coordinates=new_coords
         )
 
+    def remove_bonds(self, bonds_to_remove):
+        """
+        Removes bonds that are in the input set.
+        """
+        bonds_mask = np.array([b not in bonds_to_remove
+                               for b in self.bonds])
+        return dataclasses.replace(
+            self,
+            bonds=self.bonds[bonds_mask]
+        )
+
     @staticmethod
     def _create(clazz, **kwargs):
         """

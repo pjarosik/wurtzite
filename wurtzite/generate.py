@@ -56,7 +56,7 @@ def create_lattice(
     return crystal
 
 
-def create_bonds(input_molecule: Molecule) -> np.ndarray:
+def create_bonds(input_molecule: Molecule) -> Molecule:
     molecule = convert_to_openbabel(input_molecule)
     molecule.ConnectTheDots()
     molecule.PerceiveBondOrders()
@@ -65,8 +65,28 @@ def create_bonds(input_molecule: Molecule) -> np.ndarray:
     return output_molecule.bonds
 
 
-def update_bonds(input_molecule: Molecule) -> np.ndarray:
+def update_bonds(input_molecule: Molecule) -> Molecule:
     input_molecule = dataclasses.replace(input_molecule, bonds=np.asarray([]))
     new_bonds = create_bonds(input_molecule)
     return dataclasses.replace(input_molecule, bonds=new_bonds)
+
+def remove_atoms(input_molecule: Molecule, atom_numbers) -> Molecule:
+    """
+    Returns a new molecule with atoms with indices that are NOT
+    in the `atom_numbers`.
+    For example to remove the first atom in the lattice:
+
+    new_molecule = molecule.remove_atoms({1})
+
+    :param atom_numbers: indices of atoms to remove
+    """
+    mask = np.array([i not in atom_numbers
+                     for i in range(len(input_molecule.atomic_number))])
+    new_molecule = dataclasses.replace(
+        input_molecule,
+        atomic_number=input_molecule.atomic_number[mask],
+        coordinates=input_molecule.coordinates[mask],
+    )
+    return update_bonds(new_molecule)
+
 

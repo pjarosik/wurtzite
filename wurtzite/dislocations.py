@@ -108,6 +108,40 @@ def beta_function(x: np.ndarray, be: float, bz: float) -> np.ndarray:
     return result  # (natoms, 3, 3)
 
 
+def displace_love_single(crystal, dislocation):
+    position = np.asarray(dislocation.position)
+    burgers_vector = np.asarray(dislocation.b)
+    plane = np.asarray(dislocation.plane)
+    bv_fraction = 1.0
+
+    cell = crystal.cell
+
+    _assert_is_vector(position)
+    _assert_is_vector(burgers_vector)
+    _assert_is_vector(plane)
+
+    rt = _get_rotation_tensor(
+        burgers_vector=burgers_vector,
+        plane=plane,
+        cell=cell
+    )
+    rt_inv = np.transpose(rt)
+
+    burgers_vector = bv_fraction * cell.to_cartesian_indices(burgers_vector)
+    burgers_vector = burgers_vector.reshape(-1, 1)
+    burgers_vector = rt.dot(burgers_vector).squeeze()
+    be = np.sqrt(burgers_vector[0] ** 2 + burgers_vector[1] ** 2)
+    bz = burgers_vector[2]
+    position = position.reshape(-1, 1)
+    cd = rt.dot(position).squeeze()  # (3, )
+    # Initial setting
+    x_all = rt.dot(crystal.coordinates.T).T  # (natoms, 3)
+    x_all = x_all - cd.reshape(1, -1)
+    result_u = love_function(x_all, be, bz)
+    result_u = rt_inv.dot(result_u.T).T
+    return result_u
+
+
 def displace_love(
         crystal: Crystal,
         position: Union[Sequence[float], np.ndarray],
