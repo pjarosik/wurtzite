@@ -9,9 +9,10 @@ from utils_2nd import *
 from utilsv2 import *
 from visualization import animate_all
 
+# Zmieniono kolejnosc przesuwania: najpierw atomy, potem plaszczyzne, potem atomy zgodnie z plaszczyzna
 
 if __name__ == "__main__":
-    HIGHLIGHTED_ATOM = 93
+    HIGHLIGHTED_ATOM = 68
     REGENERATE = False
     output_dir = sys.argv[1]
 
@@ -19,7 +20,7 @@ if __name__ == "__main__":
     # lattice, with the new bonds, and save it to the lattice.pkl file.
     if not Path("lattice.pkl").exists() or REGENERATE:
         l0 = wzt.generate.create_lattice(
-            dimensions=(10, 5, 2),
+            dimensions=(7, 3, 1),
             cell="B4_AlN",
         )
         pickle.dump(l0, open("lattice.pkl", "wb"))
@@ -30,7 +31,7 @@ if __name__ == "__main__":
     # First dislocation.
     dis_1 = DislocationDef(
         b=[1, 0, 0],
-        position=[3.890+1.0*l0.cell.dimensions[0], 4.03+0.35, 7.5],
+        position=[3.890, 4.03+0.35, 7.5],
         plane=(0, 0, 1),
         label="$d_1$",
         color="brown"
@@ -60,13 +61,14 @@ if __name__ == "__main__":
     l1 = wzt.generate.update_bonds(l1)
 
     # Estimate the displacements for the SECOND DISLOCATION (u_atoms).
+    # The below function considers
     d1s, d2s, u_atoms, u_crystal_plane, u_points, initial_crystal_plane, cp_atoms, u_cp_atoms = displace_all(
         # The lattice to be modified.
         crystal=l1,
         # d1 and d2
         d1=dis_1, d2=dis_2,
         # The number of iterations
-        n_iter=3,
+        n_iter=1,
         # Displacement field scaling factor. The values < 1 allows to "slow down"
         # the algorithm.
         lr=1.0,
@@ -94,8 +96,9 @@ if __name__ == "__main__":
         u_crystal_planes=u_cps,
         # Atom diplay (alpha channel)
         # xlimits, ylimits -- physical limits of the display (A)
-        alpha=0.5, xlimits=(-2, 22), ylimits=(0, 12),
+        alpha=0.5, xlimits=(-3, 18), ylimits=(0, 7),
         highlighted_atom=HIGHLIGHTED_ATOM,
-        output_format="svg"
+        output_format="svg",
+        # big_points=[l1.coordinates[HIGHLIGHTED_ATOM]]
     )
 
