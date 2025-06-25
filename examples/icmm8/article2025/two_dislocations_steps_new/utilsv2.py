@@ -298,18 +298,19 @@ def broadcast_eye(n, nrepeats):
 #         result[i] = integral
 #     return result
 
-def calculate_integral_vec(func, limits, n=3):
-
+def calculate_integral_vec(func, limits, n=3, debug=False):
     if np.isclose(np.linalg.norm(limits[0]-limits[1]), 0.0):
         return np.zeros(n)
 
-    b, a = limits
+    a, b = limits
     direction = b-a
     direction_T = direction.T
 
     def integrand(t: float) -> np.ndarray:
         l = a + t*direction
         b = func(l).squeeze()
+        if debug:
+            print(f"b: {b}")
         return b @ direction_T
 
     result, abserror = quad_vec(integrand, 0.0, 1.0)
@@ -317,27 +318,27 @@ def calculate_integral_vec(func, limits, n=3):
     return result
 
 
-def get_u_dash(x_o, u, crystal, d1, d2, d1_rt, d2_rt):
+def get_u_dash(x_o, u, crystal, d1, d2, d1_rt, d2_rt, debug=False):
 
     def one_m_beta(l):
         betas_1 = get_betas(crystal, d1, l.reshape(-1, 3), d1_rt)
         betas_2 = get_betas(crystal, d2, l.reshape(-1, 3), d2_rt)
         betas = betas_1 + betas_2
-        F_inv = (broadcast_eye(2, betas.shape[0]) - betas)
+        one_m_beta = (broadcast_eye(2, betas.shape[0]) - betas)
         ones = broadcast_eye(3, betas.shape[0])
-        ones[:, :2, :2] = F_inv
+        ones[:, :2, :2] = one_m_beta
         return ones
 
-    return calculate_integral_vec(one_m_beta, (x_o, x_o+u))
+    return calculate_integral_vec(one_m_beta, (x_o, x_o+u), debug=debug)
 
 
 # VALUE FUNCTION AND JACOBIAN FOR ITERATING ATOMS, POINTS AND DISLOCATION POSITIONS
-def phi_points(crystal, u, x, crystal_plane, d1, d2, debug=False, rotate=False, d1_local=None, d1_rt=None, d2_rt=None):
+def phi_points(crystal, u, x, crystal_plane, d1, d2, debug=True, rotate=False, d1_local=None, d1_rt=None, d2_rt=None):
     current_x = x + u
     current_x = current_x.reshape(-1, 3)
     result = []
     for i, (p, start_p) in enumerate(zip(current_x, x)):
-        print(f"Atom: {i} / {current_x.shape[0]}", end="\r")
+        # print(f"Atom: {i} / {current_x.shape[0]}", end="\r")
         # if np.isclose(np.linalg.norm(p[..., :2]), 0.0, atol=1):
         #     r, _ = to_polar(p)  # Intentionally ignoring delta -- should be 0
         #     theta = 0.0
@@ -346,13 +347,14 @@ def phi_points(crystal, u, x, crystal_plane, d1, d2, debug=False, rotate=False, 
         #     new_u[0] = 0.0  # -be
         #     new_u[2] = 0.0
         # else:
-        f_u = get_f(crystal_plane, point=p, debug=debug, dislocation=d2, crystal=crystal)
+        f_tilde = get_f(crystal_plane, point=p, debug=debug, dislocation=d2, crystal=crystal)
         u_dash = get_u_dash(x_o=start_p, u=u[i], crystal=crystal, d1=d1, d2=d2, d1_rt=d1_rt, d2_rt=d2_rt)
-        result.append(u_dash-f_u)
+        r = u_dash - f_tilde
+        result.append(r)
 
         if debug:
             if i in {89}:
-                print(f"Atom {i}: displacement: {new_u}")
+                print(f"Atom {i}: displacement: {r}, f~: {f_tilde}, u^: {u_dash}")
 
     return np.stack(result)
 
@@ -438,15 +440,7 @@ def get_cp_integral(l, y_start, d1_local, d2_local, d1_rt, d2_rt, enable_beta2=T
             d1_rt=d1_rt, d2_rt=d2_rt, l=l, enable_beta2=enable_beta2
         )
     be, bz = get_be_bz(l.cell, d2_local.b)
-
-    # ystart = 0.25*be
     y0 = y_start
-    # y0 = 2.0
-
-    # ode_res = scipy.integrate.solve_ivp(func, t_span=(0, -20), y0=[y0], method="BDF")
-    # ode_res2 = scipy.integrate.solve_ivp(func, t_span=(0, 2), y0=[y0], method="BDF")
-
-    # print(d1_local.position)
 
     ode_res = scipy.integrate.solve_ivp(func, t_span=(np.squeeze(d1_local.position)[0], -30), y0=[y_start], method="BDF")
     ode_res2 = scipy.integrate.solve_ivp(func, t_span=(np.squeeze(d1_local.position)[0], 8), y0=[y_start], method="BDF")
@@ -456,11 +450,6 @@ def get_cp_integral(l, y_start, d1_local, d2_local, d1_rt, d2_rt, enable_beta2=T
     np1, np2 = len(ode_res.t), len(ode_res2.t)
     n_points = np1 + np2
     result = np.zeros((n_points, 3))
-
-    # print("ODE res left: ")
-    # print(ode_res.t)
-    # print(-ode_res.y+y0)
-
     # left side
     result[:np1, 0] = np.flip(np.squeeze(ode_res.t))
     result[:np1, 1] = np.flip(np.squeeze(-ode_res.y))
@@ -470,40 +459,28 @@ def get_cp_integral(l, y_start, d1_local, d2_local, d1_rt, d2_rt, enable_beta2=T
     result[np1:, 1] = -ode_res2.y
 
     result[:, 1] = result[:, 1] - np.max(result[:, 1]) + d1_local_y + y0
-    # xs = [d1_local.position[0]]
-    # ys = [y0]
-    # dx = 0.1
-    # for i in range(200):
-    #     new_x = xs[-1] + dx
-    #     new_y = func(t=new_x, y=ys[-1]) + ys[-1]
-    #     new_y = np.squeeze(new_y)
-    #     xs.append(new_x)
-    #     ys.append(new_y)
-    #
-    # result = np.zeros((len(xs), 3))
-    # print(result.shape)
-    # print(len(ys))
-    # result[:, 0] = np.asarray(xs)
-    # result[:, 1] = -np.asarray(ys) + y0
     return result
 
 
 def find_cp_integral(l, d1_local, d2_local, d1_rt, d2_rt, y0_range=(-1, 1), npoints=100):
     y0s = np.linspace(y0_range[0], y0_range[1], npoints)
     planes = []
+
+    # FIND THE GLIDE PLANE CLOSEST TO THE D2
     for y0 in y0s:
         plane = get_cp_integral(l=l, y_start=y0, d1_local=d1_local, d2_local=d2_local,
                         d1_rt=d1_rt, d2_rt=d2_rt, enable_beta2=False)
         planes.append(plane)
 
     ds = []
-    # Find the point closest to d2 (0,0,0)
     for plane in planes:
         d = np.hypot(plane[:, 0], plane[:, 1])
         ds.append(np.min(d))
     # Find the plane
     a = np.argmin(ds)
     y0 = y0s[a]
+
+    # CALCULATE THE FINAL PLANE
     return get_cp_integral(l=l, y_start=y0, d1_local=d1_local, d2_local=d2_local,
                            d1_rt=d1_rt, d2_rt=d2_rt, enable_beta2=True)
 
@@ -535,7 +512,6 @@ def displace_all(
     )
     position = np.asarray(d2_global.position)
     cell = crystal.cell
-    bv_fraction = 1.0
 
     burgers_vector = np.asarray(d2_global.b)
     plane = np.asarray(d2_global.plane)
@@ -549,13 +525,10 @@ def displace_all(
     position = position.reshape(-1, 1)
     cd = rt.dot(position).squeeze()  # (3, )
 
-    # crystal_plane_orig = crystal_plane.copy()
-    
     def _preprocess(x):
         x = rt.dot(x.T).T
         x = x - cd.reshape(1, -1)
         return x
-
 
     def _postprocess(u):
         return rt_inv.dot(u.T).T
@@ -568,10 +541,6 @@ def displace_all(
     # W UKLADZIE WSPOLRZEDNYCH DRUGIEJ DYSLOKACJI
     atoms_orig = _preprocess(crystal.coordinates.copy())  # (n atoms, 3)
     d1_pos_orig = _preprocess(np.array(d1.position).reshape(1, 3))  # (1, 3)
-    # crystal_plane_orig = crystal_plane_orig-cd.reshape(1, -1)  # (n plane points, 3)
-    # crystal_plane_orig = _preprocess(crystal_plane_orig.copy())  # (n plane points, 3)
-    if points is not None:
-        points_orig = _preprocess(points.copy())  # (n points, 3)
 
     # Iterated values
     n_atoms, dims = atoms_orig.shape
@@ -581,16 +550,10 @@ def displace_all(
     dis_2s = []
     dis_1s.append(copy.deepcopy(d1))
     dis_2s.append(copy.deepcopy(d2_global))
-    crystal_planes = []  # np.zeros((n_iter+1, n_crystal_points, dims))
+    crystal_planes = []
 
-    if points is not None:
-        n_points, dims = points.shape
-        u_points = np.zeros((n_iter+1, n_points, dims))
-    
     u_atoms_current = np.zeros((n_atoms, dims))
     u_d1_current = np.zeros((1, dims))
-    if points is not None:
-        u_points_current = np.zeros((n_points, dims))
 
     d1_rt_current = None
     dis_1_orig = dataclasses.replace(d1, position=d1_pos_orig)
@@ -608,7 +571,8 @@ def displace_all(
     for i in range(1, n_iter+1):
         print(f"Iteration {i}")
         # Do not calculate betas for d1 field
-        # Di
+
+        # ---------- DETERMINE THE NEW POSITION and ORIENTATION OF d_1 (delta u for d_1)
         def jac(u, x):
             # dis_2 -- moze byc w ukladzie globalnym, bo kierunek wektora burgersa
             # nie ma znaczenia -- ma znacznie tylko modul
@@ -626,49 +590,22 @@ def displace_all(
             dis_b_position=np.asarray(d1.position + u_d1_current) - np.asarray(d2_global.position),
             dis_b_bv=d1.b
         )
-        # dis_1_current_bv, dis_1_rt_current = rotate_dis(crystal, dis_2, dis_b_position=dis_1_current.position+u_dis_1_current, dis_b_bv=dis_1.b)
         d1_current_local = dataclasses.replace(
             d1_current_local,
             position=np.squeeze(d1_pos_orig+u_d1_current),
             b=d1_current_bv
         )
-        d1_current_global = dataclasses.replace(
-            d1_current_local,
-            position=np.squeeze(d1.position+u_d1_current),
-            b=d1_current_bv
-        )
-        # PLANE
-        # Wydaje sie nie dawac dobrego rozwiazania
-        # Wyznacz polozenia atomow
-        # u_crystal_plane_current = step_newton_raphson(
-        #     u_crystal_plane_current, f=u_func_cp, jacobian=jac_cp, lr=lr,
-        #     x=crystal_plane_orig
-        # )
-        # cpp = get_cp(crystal, d1=d1_current_global, d2=d2_global) UWAGA: cpp jest w globalnym ukladzie wspolrzednych
-        # Get initial y0 for the crystal plane
-        # Calculated in the coordinate system of the d2!
-        # Find the initial y0
-        # d1 initially distorts plane, d2 is included in the plane
-        # _, cp_y0 = get_cp(l=crystal, d1=d1, d2=d2_global)
-        # ponizsza plaszczyzna jest zaczepiona w d2
-        # Move to the d2 local coordinate system
-        # uwaga: y0 jest dla ukladu zaczepionego w d1
-        # cp_y0 += (d1.position[1]-d2_global.position[1]) # TODO what about the rotation???
 
-        # PONIZEJ punkty zaczepione w d2!
+        ## ---------- DETERMINE THE GLIDE PLANE (cpp)
         cpp = find_cp_integral(
             l=crystal, d1_local=d1_current_local, d2_local=d2_local,
             d1_rt=d1_rt_current, d2_rt=d2_rt,
         )
-        # print("CPP x")
-        # print(cpp[:, 0])
-        # print("CPP y")
-        # print(cpp[:, 1])
         crystal_plane_current = cpp
         crystal_planes.append(_postprocess_points(cpp.copy()))
 
+        ## ---------- DETERMINE THE NEW POSITION OF ATOMS (delta u for atoms)
         # POINTS
-        # include di field in the jacobian
         def jac(u, x):
             return jacobian_points(
                 crystal,
@@ -686,37 +623,13 @@ def displace_all(
                 u, x,
                 crystal_plane=crystal_plane_current,
                 d1=d1_current_local,
-                d2=d2_local, rotate=True, debug=False,
+                d2=d2_local, rotate=True, debug=True,
                 d1_local=d1_current_local, d1_rt=d1_rt_current, d2_rt=d2_rt)
-
-        # ATOMS
         u_atoms_current = step_newton_raphson(u_atoms_current, f=u_func, jacobian=jac, lr=lr, x=atoms_orig, debug=False)
 
-        # OTHER POINTS
-        # if points is not None:
-        #     def jac_points(u, x):
-        #         return jacobian_points(
-        #             crystal,
-        #             u, x,
-        #             d1_rt=d1_rt_current,
-        #             d2_rt=d2_rt,
-        #             d1=d1_current_local,
-        #             d2=d2_local,
-        #             debug=False
-        #         )
-        #     def u_func_points(u, x):
-        #         return phi_points(crystal, u, x, crystal_plane=crystal_plane_current, d2=d2_local, debug=False, rotate=False, d1_local=d1_current_local,
-        #                           d1_rt=d1_rt_current, d2_rt=d2_rt)
-        #     u_points_current = step_newton_raphson(u_points_current, f=u_func_points, jacobian=jac_points, lr=lr, x=points_orig)
-
-        # Store
+        # Store results in the output arrays
         u_atoms[i, :, :] = _postprocess(u_atoms_current)
-        # if points is not None:
-        #     u_points[i, :, :] = _postprocess(u_points_current)
         dis_1s.append(dataclasses.replace(d1_current_local, position=np.squeeze(d1.position + _postprocess(u_d1_current))))
         dis_2s.append(copy.deepcopy(d2_global))
 
-    if points is not None:
-        return dis_1s, dis_2s, u_atoms, crystal_planes, None # u_points
-    else:
-        return dis_1s, dis_2s, u_atoms, crystal_planes
+    return dis_1s, dis_2s, u_atoms, crystal_planes
