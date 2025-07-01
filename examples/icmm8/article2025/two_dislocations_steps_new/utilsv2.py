@@ -43,6 +43,7 @@ def to_polar(vector):
 
 
 def _get_rotation_tensor(burgers_vector, plane, cell: wzt.model.UnitCellDef):
+    # obliczanie tensora obrotu sztywnego na podstawie wskaźników Millera
     s = cell.to_cartesian_indices(np.asarray(burgers_vector))
     s = _normalize(s)
     m = np.transpose(cell.miller_to_cartesian).dot(plane)
