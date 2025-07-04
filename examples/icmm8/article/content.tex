@@ -1,0 +1,70 @@
+\documentclass[11pt]{article}
+
+\usepackage{sectsty}
+\usepackage{graphicx}
+\usepackage{caption}
+\usepackage{subcaption}
+
+\usepackage{svg}
+
+
+\begin{document}
+
+\section{Content}
+
+\begin{figure}
+     \centering
+     \begin{subfigure}[b]{0.3\textwidth}
+         \centering
+         \includesvg[width=1.1\textwidth]{single_dislocation/8_steps/8_steps_frame_000.svg}
+     \end{subfigure}
+     \hfill
+     \begin{subfigure}[b]{0.3\textwidth}
+         \centering
+         \includesvg[width=1.1\textwidth]{single_dislocation/8_steps/8_steps_frame_001.svg}
+     \end{subfigure}
+     \hfill
+     \begin{subfigure}[b]{0.3\textwidth}
+         \centering
+         \includesvg[width=1.1\textwidth]{single_dislocation/8_steps/8_steps_frame_002.svg}
+     \end{subfigure}
+     \hfill
+          \begin{subfigure}[b]{0.3\textwidth}
+         \centering
+         \includesvg[width=1.1\textwidth]{single_dislocation/8_steps/8_steps_frame_003.svg}
+     \end{subfigure}
+     \hfill
+     \begin{subfigure}[b]{0.3\textwidth}
+         \centering
+         \includesvg[width=1.1\textwidth]{single_dislocation/8_steps/8_steps_frame_004.svg}
+     \end{subfigure}
+     \hfill
+     \begin{subfigure}[b]{0.3\textwidth}
+         \centering
+         \includesvg[width=1.1\textwidth]{single_dislocation/8_steps/8_steps_frame_005.svg}
+     \end{subfigure}
+     \caption{ZnS atom positions in the subsequent steps of the algorithm.
+     Introducing the first dislocation $[1 0 0]$ in the structure of the perfect lattice configuration.}
+\end{figure}
+
+
+\begin{figure*}
+  \begin{center}
+    \centerline{Classical solution}
+    \vskip 1mm
+    \includesvg[height=0.3\textwidth]{single_dislocation/4/4_frame_001.svg}
+    \includesvg[height=0.3\textwidth]{single_dislocation/8/8_frame_001.svg}
+    \includesvg[height=0.3\textwidth]{single_dislocation/57/57_frame_001.svg}
+    \centerline{Iterative solution}
+    \vskip 1mm
+    \includesvg[height=0.3\textwidth]{single_dislocation/4/4_frame_003.svg}
+    \includesvg[height=0.3\textwidth]{single_dislocation/8/8_frame_003.svg}
+    \includesvg[height=0.3\textwidth]{single_dislocation/57/57_frame_003.svg}
+    \caption{Core structures of $[1 0 0]$ edge dislocation in ZnS crystal. Upper panel shows classical
+  solution, lower panel presents iterative solution. Dislocation centers are indicated as red dots. Inter-atomic
+  distances are shown for informative purposes.}
+  \end{center}
+\end{figure*}
+
+
+\end{document}

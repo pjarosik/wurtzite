@@ -82,12 +82,23 @@ class Molecule:
             if v.shape != self.coordinates.shape:
                 raise ValueError("The input vector should have the same "
                                  "dimensions as coordinates matrix.")
-        elif len(v.shape == 1):
+        elif len(v.shape) == 1:
             v = v.reshape(1, -1)
         new_coords = self.coordinates + v
         return dataclasses.replace(
             self,
             coordinates=new_coords
+        )
+
+    def remove_bonds(self, bonds_to_remove):
+        """
+        Removes bonds that are in the input set.
+        """
+        bonds_mask = np.array([b not in bonds_to_remove
+                               for b in self.bonds])
+        return dataclasses.replace(
+            self,
+            bonds=self.bonds[bonds_mask]
         )
 
     @staticmethod
@@ -143,3 +154,10 @@ class Crystal(Molecule):
                              "for the first dimension.")
 
 
+@dataclass(frozen=True)
+class DislocationDef:
+    b: np.ndarray
+    position: np.ndarray
+    plane: tuple
+    label: str = "d"
+    color: str = "brown"

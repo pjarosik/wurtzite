@@ -12,7 +12,7 @@ from wurtzite.utils import is_vector
 
 
 # radius of inmobile ring relative to which the atoms in the core move up
-RADIUS_FACTOR = 1.0
+RADIUS_FACTOR = 0.5
 NU = 0.35
 
 BETA_ONES = np.diag(np.ones(3))  # (3, 3) diagonal matrix for beta function
@@ -44,7 +44,8 @@ def _get_rotation_tensor(burgers_vector, plane, cell: UnitCellDef):
 def love_function(x: np.ndarray, be: float, bz: float) -> np.ndarray:
     """
     Calculates love function.
-
+    
+    :param i: the position of the atom in the list of the atoms 
     :return: love function for the given parameters (n_points, 3)
     """
     x1 = x[..., 0]  # (n_atoms, )
@@ -107,11 +108,46 @@ def beta_function(x: np.ndarray, be: float, bz: float) -> np.ndarray:
     return result  # (natoms, 3, 3)
 
 
+def displace_love_single(crystal, dislocation):
+    position = np.asarray(dislocation.position)
+    burgers_vector = np.asarray(dislocation.b)
+    plane = np.asarray(dislocation.plane)
+    bv_fraction = 1.0
+
+    cell = crystal.cell
+
+    _assert_is_vector(position)
+    _assert_is_vector(burgers_vector)
+    _assert_is_vector(plane)
+
+    rt = _get_rotation_tensor(
+        burgers_vector=burgers_vector,
+        plane=plane,
+        cell=cell
+    )
+    rt_inv = np.transpose(rt)
+
+    burgers_vector = bv_fraction * cell.to_cartesian_indices(burgers_vector)
+    burgers_vector = burgers_vector.reshape(-1, 1)
+    burgers_vector = rt.dot(burgers_vector).squeeze()
+    be = np.sqrt(burgers_vector[0] ** 2 + burgers_vector[1] ** 2)
+    bz = burgers_vector[2]
+    position = position.reshape(-1, 1)
+    cd = rt.dot(position).squeeze()  # (3, )
+    # Initial setting
+    x_all = rt.dot(crystal.coordinates.T).T  # (natoms, 3)
+    x_all = x_all - cd.reshape(1, -1)
+    result_u = love_function(x_all, be, bz)
+    result_u = rt_inv.dot(result_u.T).T
+    return result_u
+
+
 def displace_love(
         crystal: Crystal,
         position: Union[Sequence[float], np.ndarray],
         burgers_vector: Union[Sequence[float], np.ndarray],
         plane: Union[Sequence[float], np.ndarray],
+        l_function=love_function,
         bv_fraction: float = 1.0,
         tolerance: float = 1e-7,
         method="hybr",
@@ -169,7 +205,7 @@ def displace_love(
         nonlocal be, bz
         current_x = x+u
         current_x = current_x.reshape(1, -1)
-        return u-love_function(current_x, be, bz).squeeze()
+        return u-l_function(current_x, be, bz).squeeze()
 
     def jacobian(u, x):
         nonlocal be, bz
@@ -196,6 +232,29 @@ def displace_love(
                             f"root finder message: {result.message}")
         else:
             result_u[i] = result.x
+    # Move to the previous system 
+    result_u = rt_inv.dot(result_u.T).T
     return result_u
 
 
+def get_crystal_surface_oxy(position=(0, 0, 0), x0=0, y0=0, nx=2000, ny=2000, xlim=(-10, 10), ylim=(-10, 10), bx=1):
+    def F(x, y, x0, y0, nu, bx, r0):
+        return y-y0+bx/(8*np.pi*(1-nu))*((1-2*nu)*np.log((x**2 + y**2)/r0**2)-2*y**2/(x**2 +y**2)
+                                    -(1-2*nu)*np.log((x0**2 + y0**2)/r0**2) +2*y0**2/(x0**2+y0**2))
+
+    x = np.linspace(xlim[0], xlim[1], nx)
+    y = np.linspace(ylim[0], ylim[1], ny)
+    xy = np.meshgrid(x, y, indexing="ij")
+
+    xy = np.stack(xy).reshape(2, -1)
+
+    v = F(xy[0, :], xy[1, :], x0, y0, nu=NU, bx=bx, r0=bx/2)
+    v = v.reshape(nx, ny)  # F(x, y)
+    mask = np.argmin(np.abs(v), axis=1)
+    ys = []
+    for i in mask:
+        ys.append(y[i])
+    ys = np.stack(ys)
+    x += position[0]
+    ys += position[1]
+    return x, ys
