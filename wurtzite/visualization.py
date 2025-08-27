@@ -443,7 +443,7 @@ def _lighten_color(color, amount=1.0):
 
 def plot_atoms_2d(lattice, offset=5, figsize=None, xlim=None, ylim=None, xlabel=None, ylabel=None,
                   alpha: float=1.0, fig=None, ax=None, axis_font_size=14, start_z=None, end_z=None,
-                  highlighted_atoms=None):
+                  highlighted_atoms=None, aspect="equal"):
     """
     Display the lattice on the 2D plane.
 
@@ -496,6 +496,7 @@ def plot_atoms_2d(lattice, offset=5, figsize=None, xlim=None, ylim=None, xlabel=
         ylim = [np.min(coords[:, 1])-offset, np.max(coords[:, 1])+offset]
     ax.set_xlim(xlim)
     ax.set_ylim(ylim)
+    ax.set_aspect(aspect)
     if figsize is None:
         # keep the correct aspect ratio
         x_min, x_max = xlim

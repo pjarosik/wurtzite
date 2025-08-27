@@ -6,7 +6,7 @@ import dataclasses
 import numpy as np
 
 from wurtzite.model import Crystal, Molecule
-from wurtzite.definitions import UnitCellDef, get_cell_by_name
+from wurtzite.definitions import UnitCellDef, get_cell_by_name, get_atom_by_number
 from wurtzite.io import convert_from_openbabel, convert_to_openbabel
 from typing import Tuple, Union
 
@@ -14,7 +14,8 @@ from typing import Tuple, Union
 def create_lattice(
         dimensions: Tuple[int, int, int],
         cell: Union[UnitCellDef, str],
-        set_bonds: bool = True
+        set_bonds: bool = True,
+        remove_trailing_atoms: bool = True
 ) -> Crystal:
     """
     Creates a crystal with atoms located on a lattice.
@@ -37,8 +38,10 @@ def create_lattice(
     c = cell.coordinates.reshape((1, -1, 3))
     atom_coords_cell = p + c  # (n cells, n atoms per cell, 3)
     atom_coords_cell = atom_coords_cell.reshape(-1, 3)  # (n atoms, 3)
+    
     # Get cartesian coordinates
     coordinates = cell.miller_to_cartesian.dot(atom_coords_cell.T).T
+    
     symbol = cell.atoms
     symbol = symbol*(nx*ny*nz)
     crystal = Crystal.create(
@@ -47,6 +50,16 @@ def create_lattice(
         coordinates=coordinates,
         cell=cell
     )
+
+    # NOTE:DEBUG: remove redundant coords
+    min_z = np.min(crystal.coordinates[:, 2])
+    max_z = np.max(crystal.coordinates[:, 2])
+    mask = np.logical_and(np.logical_not(np.isclose(coordinates[:, 2], min_z)), np.logical_not(np.isclose(coordinates[:, 2], max_z))) 
+    coordinates = crystal.coordinates[mask]
+    atomic_number = crystal.atomic_number[mask]
+    crystal = dataclasses.replace(crystal, coordinates=coordinates, atomic_number=atomic_number)
+    # NOTE:DEBUG:
+    
     if set_bonds:
         bonds = create_bonds(crystal)
         crystal = dataclasses.replace(
@@ -56,7 +69,10 @@ def create_lattice(
     return crystal
 
 
-def create_bonds(input_molecule: Molecule) -> Molecule:
+def create_bonds_v1(input_molecule: Molecule) -> np.ndarray:
+    """
+    Openbabel version of create bonds.
+    """
     molecule = convert_to_openbabel(input_molecule)
     molecule.ConnectTheDots()
     molecule.PerceiveBondOrders()
@@ -65,28 +81,30 @@ def create_bonds(input_molecule: Molecule) -> Molecule:
     return output_molecule.bonds
 
 
-def update_bonds(input_molecule: Molecule) -> Molecule:
+def create_bonds(input_molecule, tolerance=0.35):
+    bonds = []
+    n_atoms = input_molecule.atomic_number.shape[0]
+    for i in range(n_atoms):
+        for j in range(i + 1, n_atoms):
+            i_nr = input_molecule.atomic_number[i]
+            j_nr = input_molecule.atomic_number[j]
+
+            i_radii = get_atom_by_number(i_nr).covalent_radii
+            j_radii = get_atom_by_number(j_nr).covalent_radii
+
+            i_coords = input_molecule.coordinates[i]
+            j_coords = input_molecule.coordinates[j]
+
+            max_distance = i_radii + j_radii + tolerance
+            # NOTE:DEBUG Avoid homogenous bonds (i.e. between the same atoms)
+            if np.linalg.norm((i_coords.squeeze()-j_coords.squeeze())) <= max_distance and i_nr != j_nr:
+                bonds.append((i, j))
+    
+    return bonds
+    
+
+def update_bonds(input_molecule: Molecule, tolerance=0.35) -> np.ndarray:
     input_molecule = dataclasses.replace(input_molecule, bonds=np.asarray([]))
-    new_bonds = create_bonds(input_molecule)
+    new_bonds = create_bonds(input_molecule, tolerance=tolerance)
     return dataclasses.replace(input_molecule, bonds=new_bonds)
-
-def remove_atoms(input_molecule: Molecule, atom_numbers) -> Molecule:
-    """
-    Returns a new molecule with atoms with indices that are NOT
-    in the `atom_numbers`.
-    For example to remove the first atom in the lattice:
-
-    new_molecule = molecule.remove_atoms({1})
-
-    :param atom_numbers: indices of atoms to remove
-    """
-    mask = np.array([i not in atom_numbers
-                     for i in range(len(input_molecule.atomic_number))])
-    new_molecule = dataclasses.replace(
-        input_molecule,
-        atomic_number=input_molecule.atomic_number[mask],
-        coordinates=input_molecule.coordinates[mask],
-    )
-    return update_bonds(new_molecule)
-
 
