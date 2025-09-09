@@ -1,13 +1,43 @@
 import cupy as cp
 import numpy as np
+import wurtzite as wzt
+
+
+def line_integral(path, vals):
+    """
+    Liczy przybliżoną wartość całki krzywoliniowej, gdy F(r) zwraca macierz (d,d).
+
+    ∫ F(r) dr ≈ Σ ( (F_i + F_{i+1})/2 ) @ (p_{i+1} - p_i)
+
+    Parameters:
+    - path: (n, d) cp.ndarray – kolejne punkty ścieżki
+    - F_vals: (n, d, d) cp.ndarray – wartości funkcji macierzowej w punktach ścieżki
+
+    Returns:
+    - Całkowita wartość całki krzywoliniowej: wektor (d,)
+    """
+    path = cp.asarray(path, dtype=cp.float64)
+    vals = cp.asarray(vals, dtype=cp.float64)
+
+    # (n-1, d)
+    deltas = path[1:] - path[:-1]   # dr
+
+    # (n-1, d, d)
+    avg = 0.5 * (vals[1:] + vals[:-1])
+
+    # (n-1, d, d) @ (n-1, d, 1) -> (n-1, d, 1)
+    contribs = cp.matmul(avg, deltas[..., None])  # (n-1, d, 1)
+    integral = contribs.sum(axis=0).squeeze()  # (d,)
+    return integral
+
 
 class MillerIndices:
 
-    def __init__(self, crystal, d2_global):
+    def __init__(self, crystal, dislocation):
         cell = crystal.cell
-        position = cp.asarray(d2_global.position)
-        burgers_vector = cp.asarray(d2_global.b)
-        plane = cp.asarray(d2_global.plane)
+        position = cp.asarray(dislocation.position)
+        burgers_vector = cp.asarray(dislocation.b)
+        plane = cp.asarray(dislocation.plane)
         position = position.reshape(-1, 1)
         self.rt = get_rigid_rotation_tensor_miller(
             burgers_vector=burgers_vector,
@@ -18,6 +48,9 @@ class MillerIndices:
         self.cd = self.rt.dot(position).squeeze()  # (3, )
 
     def preprocess(self, x):
+        if x.size == 0:
+            return x
+
         x = self.rt.dot(x.T).T
         x = x - self.cd.reshape(1, -1)
         return x
@@ -59,23 +92,7 @@ def get_rigid_rotation_tensor_miller(burgers_vector, plane, cell: wzt.model.Unit
     ])
 
 
-def get_rotation_matrix(l0, dis_a, p, debug=False):
-    be, bz = get_be_bz(l0.cell, dis_a.b)
-    dis_b_local_pos = cp.asarray(p).reshape(1, -1)
-    BETA_ONES = cp.eye(3)
-    betas = beta(dis_b_local_pos, be=be, bz=bz)
-    F_inv = (BETA_ONES - betas)
-    F = cp.linalg.inv(F_inv[0, :2, :2])
-
-    ba = cp.asarray([1.0, 0.0])
-
-    ba_rotated = F.dot(ba)
-    ba = ba_rotated / cp.linalg.norm(ba_rotated)
-    ba_orto = cp.array([[0, -1],
-                        [1, 0]]).dot(ba)
-    ba_z = cp.asarray([0, 0, 1])
-
-    rotmatrix = cp.eye(3)
-    rotmatrix[:2, 0] = ba
-    rotmatrix[:2, 1] = ba_orto
-    return rotmatrix
+def get_line(a, b, n=10000):
+    t = cp.linspace(0, 1, n)[:, None]  # (n,1)
+    points = a + t * (b - a)  # (n,3)
+    return points
