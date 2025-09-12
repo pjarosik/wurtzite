@@ -90,11 +90,10 @@ def displace(crystal, dislocations, d_n, n_iters=3, alpha=1.0):
     # system centered in d_n.
     d_state = DislocationsState(
         ds=all_dislocations_local,
-        ds_rt=[cp.eye(3) for _ in range(len(all_dislocations_local))]
+        ds_rt=[cp.eye(2) for _ in range(len(all_dislocations_local))]
     )
 
     initial_d_state = d_state
-
     log = DisplacementLog()
 
     # Initialize with u = 0.
@@ -125,44 +124,61 @@ def displace(crystal, dislocations, d_n, n_iters=3, alpha=1.0):
             new_ds = []
             for i, d in enumerate(d_state.ds[:-1]):
                 current_p = cp.asarray(d.position)
-                initial_p = cp.asarray(initial_ds_local[i].position)
-                current_u = current_p - initial_p
-                du = delta_u(
+                # initial_p = cp.asarray(initial_ds_local[i].position)
+                # current_u = current_p - initial_p
+                # du = delta_u(
+                #     crystal=crystal,
+                #     point=d.position,
+                #     current_u=current_u,
+                #     d_state=d_state,
+                #     d_n=d_state.ds[-1],
+                #     # Exclude beta for the displaced dislocation
+                #     exclude_beta={i}
+                # )
+                # current_u = current_u + du
+                current_u = get_u_new(
                     crystal=crystal,
-                    point=d.position,
-                    current_u=current_u,
+                    point=current_p,
                     d_state=d_state,
                     d_n=d_state.ds[-1],
                     # Exclude beta for the displaced dislocation
                     exclude_beta={i}
                 )
-                current_u = current_u + du
-                current_p = initial_p + current_u
+                current_p = current_p + current_u
                 new_d = _set_d(d, position=current_p)
                 new_ds.append(new_d)
 
             new_ds.append(d_state.ds[-1])
-            new_d_rts.append(d_state.ds_rt[-1])
 
             d_state = DislocationsState(ds=new_ds, ds_rt=new_d_rts)
 
         # Update atom locations.
-
         atoms_d_state = d_state
+        # atoms_d_state = initial_d_state
+
         u_atoms = []
         for i, c in enumerate(initial_atoms_local):
             print(f"Atom: {i}", end="\r")
             initial_p = cp.asarray(c)
-            current_u = cp.asarray(log.last_u_atoms[i])
-            current_p = initial_p + current_u
-            du = delta_u(
+            # current_u = cp.asarray(log.last_u_atoms[i])
+            # current_p = initial_p + current_u
+            # du = delta_u(
+            #     crystal=crystal,
+            #     point=current_p,
+            #     current_u=current_u,
+            #     d_state=atoms_d_state,
+            #     d_n=atoms_d_state.ds[-1],
+            # )
+            # u_atoms.append(current_u + du)
+            current_u = get_u_new(
                 crystal=crystal,
-                point=current_p,
-                current_u=current_u,
+                point=initial_p,
                 d_state=atoms_d_state,
                 d_n=atoms_d_state.ds[-1],
+                debug=(i==0)
             )
-            u_atoms.append(current_u + du)
+            u_atoms.append(current_u)
+
         u_atoms = cp.stack(u_atoms)
         log.log(d_state=atoms_d_state, u_atoms=u_atoms)
 
@@ -171,13 +187,97 @@ def displace(crystal, dislocations, d_n, n_iters=3, alpha=1.0):
     postprocessed_log = DisplacementLog()
     for u, d in zip(log.u_atoms, log.d_states):
         u = miller.postprocess(u).get()
-        d = postprocess_dislocations(
-            d_state=d, initial_d=all_dislocations_local,
-            miller=miller)
+        d = postprocess_dislocations(d_state=d,  miller=miller)
 
         postprocessed_log.log(d_state=d, u_atoms=u)
 
     return postprocessed_log
+
+
+def get_u_new(point, d_state, crystal, d_n, exclude_beta: set = None, n_points=20, debug=False):
+    be, bz = get_be_bz(crystal.cell, d_n.b)
+    x_o = cp.asarray([0.5 * be.item(), 0.0, 0.0])
+    x_dash = point
+
+    if exclude_beta is None:
+        exclude_beta = set()
+
+    points = get_integration_path(
+        x_o=x_o, x_dash=x_dash, dislocation=d_n, n_points=n_points
+    )
+
+    # Ignore 3rd dimension
+    points = points[:, :2]
+    x_o = x_o[:2]
+
+    # F_2_{\Sigma_N} (!)
+    F_2_excluded_beta = exclude_beta.copy()
+    F_2_excluded_beta.add(len(d_state.ds)-1)
+
+    result = integrate_path_euler(
+        x0=x_o, path_points=points,
+        # F_{\Sigma_{N+1}}
+        F1=lambda x: get_F(
+            point=x,
+            crystal=crystal,
+            d_state=d_state,
+            exclude_beta=exclude_beta
+        ),
+        # F_{\Sigma_N}
+        F2=lambda x: get_F_inv(
+            point=x,
+            crystal=crystal,
+            d_state=d_state,
+            exclude_beta=F_2_excluded_beta
+        )
+    )
+    result = result[-1]  # Use the final integration value
+    # Just for the backward compatibility -- return displacement instead of the
+    # final position.
+    result = cp.concatenate([result, cp.array([0.0])])
+    u = result - point
+    return u
+
+
+def get_F_inv(point, crystal, d_state, exclude_beta):
+    points = point.reshape(1, -1)
+    beta_s = beta_sigma(
+        points=points,
+        crystal=crystal,
+        d_state=d_state,
+        exclude_beta=exclude_beta,
+    )
+    one = broadcast_eye(2, beta_s.shape[0])
+    F_inv = (one - beta_s)
+    return F_inv.squeeze()
+
+
+def get_F(point, crystal, d_state, exclude_beta):
+    F_inv = get_F_inv(point=point, crystal=crystal, d_state=d_state,
+                      exclude_beta=exclude_beta).reshape((1, 2, 2))
+    det_mask = cp.isclose(cp.linalg.det(F_inv), 0)
+    F_inv[det_mask, ...] = cp.eye(2)
+    F = cp.linalg.inv(F_inv)
+    # TODO: should be zero or one?
+    F[det_mask, ...] = cp.eye(2)
+    return F.squeeze()
+
+
+def integrate_path_euler(x0, path_points, F1, F2):
+    """
+    NOTE: assuming, that x0, dl_list, F1, F2 are all 2D.
+    """
+    dl_list = cp.diff(path_points, axis=0)
+    dl_list = cp.asarray(dl_list)
+    y = cp.zeros((len(dl_list) + 1, 2))
+
+    y[0] = x0
+
+    for i, dl in enumerate(dl_list):
+        mat = F1(y[i]) @ F2(y[i])
+        y[i+1] = y[i] + mat @ dl
+
+    return y
 
 
 def delta_u(crystal, point, current_u, d_state, d_n, exclude_beta=None):
@@ -224,16 +324,18 @@ class DislocationsState:
         return self.ds[-1]
 
 
-def get_integration_path(x_o, x_dash, dislocation):
+def get_integration_path(x_o, x_dash, dislocation, n_points=1000):
     # TODO replace with RTT
     direction = cp.sign(x_dash.squeeze()[1] - cp.asarray(dislocation.position)[1])
+    if direction == 0:
+        raise ValueError("there should be no point located exactly at y=0")
     offset = direction * cp.asarray([0.0, 10.0, 0.0])
     x_o1 = cp.asarray(x_o).squeeze() + offset
     x_o2 = cp.asarray([x_dash.squeeze()[0].item(), x_o1[1].item(), 0])
 
-    l1 = get_line(x_o, x_o1)
-    l2 = get_line(x_o1, x_o2)
-    l3 = get_line(x_o2, x_dash)
+    l1 = get_line(x_o, x_o1, n=n_points)
+    l2 = get_line(x_o1, x_o2, n=n_points)
+    l3 = get_line(x_o2, x_dash, n=n_points)
     points = cp.concatenate((l1, l2, l3), axis=0)
     return points
 
@@ -314,7 +416,7 @@ def beta_rotated(crystal, d, points, rotation_matrix, dis_tolerance=DIS_TOLERANC
 
     be, bz = get_be_bz(crystal.cell, d.b)
     # Przenieś do układu zaczepionego w dyslokacji (istotne np. dla d1).
-    points = cp.asarray(points) - cp.asarray(d.position).reshape(1, -1)
+    points = cp.asarray(points) - cp.asarray(d.position[:2]).reshape(1, -1)
     points = rotation_matrix.dot(points.T).T
     betas = beta(points, be=be, bz=bz)[:, :2, :2]
     rm = rotation_matrix[:2, :2].reshape(1, 2, 2)
@@ -366,7 +468,7 @@ def rotate_dislocation(crystal, d_state, rotated_dislocation, exclude_beta):
 
     :param reference_dislocation: introduced dislocation
     """
-    bv, p = rotated_dislocation.b, rotated_dislocation.position
+    bv, p = rotated_dislocation.b, rotated_dislocation.position[:2]
     bv = cp.asarray(bv)
     rm = get_rotation_matrix(
         p=p,
@@ -408,7 +510,7 @@ def get_rotation_matrix(crystal, d_state, p, exclude_beta):
                         [1, 0]]).dot(ba)
     ba_z = cp.asarray([0, 0, 1])
 
-    rotmatrix = cp.eye(3)
+    rotmatrix = cp.eye(2)
     rotmatrix[:2, 0] = ba
     rotmatrix[:2, 1] = ba_orto
     return rotmatrix
