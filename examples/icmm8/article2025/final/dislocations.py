@@ -194,7 +194,7 @@ def displace(crystal, dislocations, d_n, n_iters=3, alpha=1.0):
     return postprocessed_log
 
 
-def get_u_new(point, d_state, crystal, d_n, exclude_beta: set = None, n_points=20, debug=False):
+def get_u_new(point, d_state, crystal, d_n, exclude_beta: set = None, n_points=100, debug=False):
     be, bz = get_be_bz(crystal.cell, d_n.b)
     x_o = cp.asarray([0.5 * be.item(), 0.0, 0.0])
     x_dash = point
@@ -273,9 +273,14 @@ def integrate_path_euler(x0, path_points, F1, F2):
 
     y[0] = x0
 
+    # Current position of the traversed path (we start at the position p, then we are moving along the path).
+    p = x0
+
     for i, dl in enumerate(dl_list):
-        mat = F1(y[i]) @ F2(y[i])
+        # F1(x_i) + F2(x^_i)
+        mat = F1(y[i]) @ F2(p)
         y[i+1] = y[i] + mat @ dl
+        p += dl
 
     return y
 
