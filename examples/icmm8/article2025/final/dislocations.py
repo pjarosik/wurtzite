@@ -138,7 +138,7 @@ def displace(crystal, dislocations, d_n, n_iters=3, alpha=1.0):
                 # current_u = current_u + du
                 current_u = get_u_new(
                     crystal=crystal,
-                    point=current_p,
+                    points=current_p.reshape(1, -1),
                     d_state=d_state,
                     d_n=d_state.ds[-1],
                     # Exclude beta for the displaced dislocation
@@ -155,30 +155,14 @@ def displace(crystal, dislocations, d_n, n_iters=3, alpha=1.0):
         # Update atom locations.
         atoms_d_state = d_state
         # atoms_d_state = initial_d_state
+        initial_p = cp.asarray(cp.coordinates)  # (n atoms, 3)
 
-        u_atoms = []
-        for i, c in enumerate(initial_atoms_local):
-            print(f"Atom: {i}", end="\r")
-            initial_p = cp.asarray(c)
-            # current_u = cp.asarray(log.last_u_atoms[i])
-            # current_p = initial_p + current_u
-            # du = delta_u(
-            #     crystal=crystal,
-            #     point=current_p,
-            #     current_u=current_u,
-            #     d_state=atoms_d_state,
-            #     d_n=atoms_d_state.ds[-1],
-            # )
-            # u_atoms.append(current_u + du)
-            current_u = get_u_new(
-                crystal=crystal,
-                point=initial_p,
-                d_state=atoms_d_state,
-                d_n=atoms_d_state.ds[-1],
-                debug=(i==0)
-            )
-            u_atoms.append(current_u)
-
+        u_atoms = get_u_new(  # (n atoms, 3)
+            crystal=crystal,
+            point=initial_p,
+            d_state=atoms_d_state,
+            d_n=atoms_d_state.ds[-1],
+        )
         u_atoms = cp.stack(u_atoms)
         log.log(d_state=atoms_d_state, u_atoms=u_atoms)
 
@@ -194,17 +178,22 @@ def displace(crystal, dislocations, d_n, n_iters=3, alpha=1.0):
     return postprocessed_log
 
 
-def get_u_new(point, d_state, crystal, d_n, exclude_beta: set = None, n_points=100, debug=False):
+def get_u_new(points, d_state, crystal, d_n, exclude_beta: set = None, n_points=100, debug=False):
     be, bz = get_be_bz(crystal.cell, d_n.b)
     x_o = cp.asarray([0.5 * be.item(), 0.0, 0.0])
-    x_dash = point
+    x_dash = points
 
     if exclude_beta is None:
         exclude_beta = set()
 
-    points = get_integration_path(
-        x_o=x_o, x_dash=x_dash, dislocation=d_n, n_points=n_points
-    )
+    n_atoms = points.shape[0]
+
+    points = []
+    for point in points:
+        p = get_integration_path(
+            x_o=x_o, x_dash=x_dash, dislocation=d_n, n_points=n_points
+        )
+        points.append(p)
 
     # Ignore 3rd dimension
     points = points[:, :2]
@@ -214,33 +203,33 @@ def get_u_new(point, d_state, crystal, d_n, exclude_beta: set = None, n_points=1
     F_2_excluded_beta = exclude_beta.copy()
     F_2_excluded_beta.add(len(d_state.ds)-1)
 
-    result = integrate_path_euler(
+    result = integrate_paths_euler_parallel( # (n traj (atoms), n_steps, 2)
         x0=x_o, path_points=points,
         # F_{\Sigma_{N+1}}
         F1=lambda x: get_F(
-            point=x,
+            points=x,
             crystal=crystal,
             d_state=d_state,
             exclude_beta=exclude_beta
         ),
         # F_{\Sigma_N}
         F2=lambda x: get_F_inv(
-            point=x,
+            points=x,
             crystal=crystal,
             d_state=d_state,
             exclude_beta=F_2_excluded_beta
         )
     )
-    result = result[-1]  # Use the final integration value
+    result = result[:, -1, :]  # Use the final integration value (n atoms, 2)
     # Just for the backward compatibility -- return displacement instead of the
     # final position.
-    result = cp.concatenate([result, cp.array([0.0])])
+    result = cp.concatenate((result, cp.zeros((n_points, 1))), axis=1)
     u = result - point
     return u
 
 
-def get_F_inv(point, crystal, d_state, exclude_beta):
-    points = point.reshape(1, -1)
+def get_F_inv(points, crystal, d_state, exclude_beta):
+    points = points.reshape(1, -1)
     beta_s = beta_sigma(
         points=points,
         crystal=crystal,
@@ -252,8 +241,8 @@ def get_F_inv(point, crystal, d_state, exclude_beta):
     return F_inv.squeeze()
 
 
-def get_F(point, crystal, d_state, exclude_beta):
-    F_inv = get_F_inv(point=point, crystal=crystal, d_state=d_state,
+def get_F(points, crystal, d_state, exclude_beta):
+    F_inv = get_F_inv(points=points, crystal=crystal, d_state=d_state,
                       exclude_beta=exclude_beta).reshape((1, 2, 2))
     det_mask = cp.isclose(cp.linalg.det(F_inv), 0)
     F_inv[det_mask, ...] = cp.eye(2)
@@ -261,6 +250,50 @@ def get_F(point, crystal, d_state, exclude_beta):
     # TODO: should be zero or one?
     F[det_mask, ...] = cp.eye(2)
     return F.squeeze()
+
+
+def integrate_paths_euler_parallel(x0, path_points, F1, F2):
+    """
+    Euler integration for many independent paths in parallel on GPU (CuPy).
+
+    Parameters
+    ----------
+    x0 : cp.ndarray, shape (2,)
+        Common initial position for all trajectories.
+    path_points : cp.ndarray, shape (n_traj, n_steps+1, 2)
+        Path points for each trajectory.
+    F1 : callable
+        F1(y) -> (n_traj, 2, 2). Vectorized over batch of y.
+    F2 : callable
+        F2(p) -> (n_traj, 2, 2). Vectorized over batch of p.
+
+    Returns
+    -------
+    traj : cp.ndarray, shape (n_traj, n_steps+1, 2)
+        Trajectories of all initial points along their own path.
+    """
+    dl_list = cp.diff(path_points, axis=1)  # (n_traj, n_steps, 2)
+    n_traj, n_steps = dl_list.shape[0], dl_list.shape[1]
+
+    traj = cp.zeros((n_traj, n_steps+1, 2), dtype=cp.float64)
+    traj[:, 0, :] = x0  # same initial point for all trajectories
+
+    y = cp.broadcast_to(x0, (n_traj, 2)).copy()  # current states for each trajectory
+    p = path_points[:, 0, :].copy()
+
+    for i in range(n_steps):
+        print(f"Step: {i}", end="\r")
+        # F1(y_i) and F2(p_i) for all trajectories in batch
+        F1y = F1(y)          # (n_traj, 2, 2)
+        F2p = F2(p)          # (n_traj, 2, 2)
+        mat = cp.matmul(F1y, F2p)  # (n_traj, 2, 2)
+
+        dy = cp.einsum('nij,nj->ni', mat, dl_list[:, i, :])
+        y = y + dy
+        traj[:, i+1, :] = y
+        p = p + dl_list[:, i, :]   # update path position per trajectory
+
+    return traj
 
 
 def integrate_path_euler(x0, path_points, F1, F2):
