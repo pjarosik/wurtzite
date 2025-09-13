@@ -136,14 +136,14 @@ def displace(crystal, dislocations, d_n, n_iters=3, alpha=1.0):
                 #     exclude_beta={i}
                 # )
                 # current_u = current_u + du
-                current_u = get_u_new(
+                current_u = get_u_new(  # (3, )
                     crystal=crystal,
                     points=current_p.reshape(1, -1),
                     d_state=d_state,
                     d_n=d_state.ds[-1],
                     # Exclude beta for the displaced dislocation
                     exclude_beta={i}
-                )
+                ).squeeze()
                 current_p = current_p + current_u
                 new_d = _set_d(d, position=current_p)
                 new_ds.append(new_d)
