@@ -63,7 +63,7 @@ def postprocess_dislocations(d_state, miller):
     return DislocationsState(ds=new_ds, ds_rt=d_state.ds_rt)
 
 
-def displace(crystal, dislocations, d_n, n_iters=3, alpha=1.0):
+def displace(crystal, dislocations, d_n, n_iters=3, alpha=1.0, skip_np1=False, n_points=30000):
     """
     Displaces the given crystal lattice according to the displacements
     caused by the dislocation d.
@@ -101,44 +101,44 @@ def displace(crystal, dislocations, d_n, n_iters=3, alpha=1.0):
 
     for i in range(n_iters):
 
-        if len(d_state.ds) > 1:
-            # More than one dislocation -- we need to update the rotation
-            # and location of each previous dislocation.
-
-            # Rotate dislocations (including the currently added one).
-            new_ds = []
-            new_d_rts = []
-            for i, d in enumerate(d_state.ds):
-                new_d, new_d_rt = rotate_dislocation(
-                    crystal=crystal, d_state=d_state,
-                    rotated_dislocation=d,
-                    exclude_beta={i}
-                )
-                new_ds.append(new_d)
-                new_d_rts.append(new_d_rt)
-
-            d_state = DislocationsState(ds=new_ds, ds_rt=new_d_rts)
-
-            # Displace dislocations (a single Newton procedure step).
-            # (excluding the currently added one).
-            new_ds = []
-            for i, d in enumerate(d_state.ds[:-1]):
-                current_p = cp.asarray(d.position)
-                current_u = get_u_new(  # (3, )
-                    crystal=crystal,
-                    x=current_p.reshape(1, -1),
-                    d_state=d_state,
-                    d_n=d_state.ds[-1],
-                    # Exclude beta for the displaced dislocation
-                    exclude_beta={i}
-                ).squeeze()
-                current_p = current_p + current_u
-                new_d = _set_d(d, position=current_p)
-                new_ds.append(new_d)
-
-            new_ds.append(d_state.ds[-1])
-
-            d_state = DislocationsState(ds=new_ds, ds_rt=new_d_rts)
+        # if len(d_state.ds) > 1:
+        #     # More than one dislocation -- we need to update the rotation
+        #     # and location of each previous dislocation.
+        #
+        #     # Rotate dislocations (including the currently added one).
+        #     new_ds = []
+        #     new_d_rts = []
+        #     for i, d in enumerate(d_state.ds):
+        #         new_d, new_d_rt = rotate_dislocation(
+        #             crystal=crystal, d_state=d_state,
+        #             rotated_dislocation=d,
+        #             exclude_beta={i}
+        #         )
+        #         new_ds.append(new_d)
+        #         new_d_rts.append(new_d_rt)
+        #
+        #     d_state = DislocationsState(ds=new_ds, ds_rt=new_d_rts)
+        #
+        #     # Displace dislocations (a single Newton procedure step).
+        #     # (excluding the currently added one).
+        #     new_ds = []
+        #     for i, d in enumerate(d_state.ds[:-1]):
+        #         current_p = cp.asarray(d.position)
+        #         current_u = get_u_new(  # (3, )
+        #             crystal=crystal,
+        #             x=current_p.reshape(1, -1),
+        #             d_state=d_state,
+        #             d_n=d_state.ds[-1],
+        #             # Exclude beta for the displaced dislocation
+        #             exclude_beta={i}
+        #         ).squeeze()
+        #         current_p = current_p + current_u
+        #         new_d = _set_d(d, position=current_p)
+        #         new_ds.append(new_d)
+        #
+        #     new_ds.append(d_state.ds[-1])
+        #
+        #     d_state = DislocationsState(ds=new_ds, ds_rt=new_d_rts)
 
         # Update atom locations.
         atoms_d_state = d_state
@@ -150,6 +150,8 @@ def displace(crystal, dislocations, d_n, n_iters=3, alpha=1.0):
             x=initial_p,
             d_state=atoms_d_state,
             d_n=atoms_d_state.ds[-1],
+            skip_np1=skip_np1,
+            n_points=n_points
         )
         u_atoms = cp.stack(u_atoms)
         log.log(d_state=atoms_d_state, u_atoms=u_atoms)
@@ -166,7 +168,8 @@ def displace(crystal, dislocations, d_n, n_iters=3, alpha=1.0):
     return postprocessed_log
 
 
-def get_u_new(x, d_state, crystal, d_n, exclude_beta: set = None, n_points=1000, debug=False):
+def get_u_new(x, d_state, crystal, d_n, skip_np1, exclude_beta: set = None,
+              n_points=20000, debug=False):
     be, bz = get_be_bz(crystal.cell, d_n.b)
     x_o = cp.asarray([0.5 * be.item(), 0.0, 0.0])
     x_dash = x
@@ -193,16 +196,22 @@ def get_u_new(x, d_state, crystal, d_n, exclude_beta: set = None, n_points=1000,
     F_2_excluded_beta = exclude_beta.copy()
     F_2_excluded_beta.add(len(d_state.ds)-1)
     # result = integrate_paths_euler_parallel( # (n traj (atoms), n_steps, 2)
-    result = integrate_paths_trapezoid_parallel( # (n traj (atoms), n_steps, 2)
-        x0=x_o,
-        path_points=paths,
-        # F_{\Sigma_{N+1}}
-        F1=lambda x: get_F(
+
+    if skip_np1:
+        F1 = None
+    else:
+        F1 = lambda x: get_F(
             points=x,
             crystal=crystal,
             d_state=d_state,
             exclude_beta=exclude_beta
-        ),
+        )
+
+    result = integrate_paths_trapezoid_parallel( # (n traj (atoms), n_steps, 2)
+        x0=x_o,
+        path_points=paths,
+        # F_{\Sigma_{N+1}}
+        F1=F1,
         # F_{\Sigma_N}
         F2=lambda x: get_F_inv(
             points=x,
@@ -320,9 +329,14 @@ def integrate_paths_trapezoid_parallel(x0, path_points, F1, F2):
         dl = dl_list[:, i, :]
 
         # --- f(y_i, p_i) ---
-        F1y = F1(y)
         F2p = F2(p)
-        mat = cp.matmul(F1y, F2p)
+
+        if F1 is not None:
+            F1y = F1(y)
+            mat = cp.matmul(F1y, F2p)
+        else:
+            mat = F2p
+
         f_i = cp.einsum('nij,nj->ni', mat, dl)
 
         # provisional step y* and next path point p_{i+1}
@@ -330,9 +344,14 @@ def integrate_paths_trapezoid_parallel(x0, path_points, F1, F2):
         p_next = p + dl
 
         # --- f(y*, p_{i+1}) ---
-        F1y_star = F1(y_star)
         F2p_next = F2(p_next)
-        mat_star = cp.matmul(F1y_star, F2p_next)
+
+        if F1 is not None:
+            F1y_star = F1(y_star)
+            mat_star = cp.matmul(F1y_star, F2p_next)
+        else:
+            mat_star = F2p_next
+
         f_star = cp.einsum('nij,nj->ni', mat_star, dl)
 
         # trapezoidal update
@@ -410,7 +429,7 @@ class DislocationsState:
         return self.ds[-1]
 
 
-def get_integration_path(x_o, x_dash, dislocation, n_points=1000):
+def get_integration_path(x_o, x_dash, dislocation, n_points=30000):
     # TODO replace with RTT
     direction = cp.sign(x_dash.squeeze()[1] - cp.asarray(dislocation.position)[1])
     if direction == 0:
