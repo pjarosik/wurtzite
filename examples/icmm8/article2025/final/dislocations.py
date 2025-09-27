@@ -30,10 +30,12 @@ class DisplacementLog:
     def __init__(self):
         self.d_states = []
         self.u_atoms = []
+        self.glide_planes = []
 
-    def log(self, d_state, u_atoms):
+    def log(self, d_state, u_atoms, glide_plane):
         self.d_states.append(d_state)
         self.u_atoms.append(u_atoms)
+        self.glide_planes.append(glide_plane)
 
     def get_u_atoms(self):
         return cp.stack(self.u_atoms)
@@ -45,6 +47,10 @@ class DisplacementLog:
     @property
     def last_u_atoms(self):
         return self.u_atoms[-1]
+
+    @property
+    def last_glide_plane(self):
+        return self.glide_planes[-1]
 
 
 def postprocess_dislocations(d_state, miller):
@@ -63,7 +69,8 @@ def postprocess_dislocations(d_state, miller):
     return DislocationsState(ds=new_ds, ds_rt=d_state.ds_rt)
 
 
-def displace(crystal, dislocations, d_n, n_iters=3, alpha=1.0, skip_np1=False, n_points=30000):
+def displace(crystal, dislocations, d_n, n_iters=3, alpha=1.0, skip_np1=False, n_points=30000,
+             glide_plane_margin=30):
     """
     Displaces the given crystal lattice according to the displacements
     caused by the dislocation d.
@@ -96,50 +103,56 @@ def displace(crystal, dislocations, d_n, n_iters=3, alpha=1.0, skip_np1=False, n
     initial_d_state = d_state
     log = DisplacementLog()
 
+    glide_plane = find_glide_plane(crystal, d_state, margin=glide_plane_margin)
+
     # Initialize with u = 0.
-    log.log(d_state=d_state, u_atoms=cp.zeros(shape=initial_atoms_local.shape))
+    log.log(d_state=d_state, u_atoms=cp.zeros(shape=initial_atoms_local.shape),
+            glide_plane=glide_plane)
 
     for i in range(n_iters):
 
-        # if len(d_state.ds) > 1:
-        #     # More than one dislocation -- we need to update the rotation
-        #     # and location of each previous dislocation.
-        #
-        #     # Rotate dislocations (including the currently added one).
-        #     new_ds = []
-        #     new_d_rts = []
-        #     for i, d in enumerate(d_state.ds):
-        #         new_d, new_d_rt = rotate_dislocation(
-        #             crystal=crystal, d_state=d_state,
-        #             rotated_dislocation=d,
-        #             exclude_beta={i}
-        #         )
-        #         new_ds.append(new_d)
-        #         new_d_rts.append(new_d_rt)
-        #
-        #     d_state = DislocationsState(ds=new_ds, ds_rt=new_d_rts)
-        #
-        #     # Displace dislocations (a single Newton procedure step).
-        #     # (excluding the currently added one).
-        #     new_ds = []
-        #     for i, d in enumerate(d_state.ds[:-1]):
-        #         current_p = cp.asarray(d.position)
-        #         current_u = get_u_new(  # (3, )
-        #             crystal=crystal,
-        #             x=current_p.reshape(1, -1),
-        #             d_state=d_state,
-        #             d_n=d_state.ds[-1],
-        #             # Exclude beta for the displaced dislocation
-        #             exclude_beta={i}
-        #         ).squeeze()
-        #         current_p = current_p + current_u
-        #         new_d = _set_d(d, position=current_p)
-        #         new_ds.append(new_d)
-        #
-        #     new_ds.append(d_state.ds[-1])
-        #
-        #     d_state = DislocationsState(ds=new_ds, ds_rt=new_d_rts)
+        if len(d_state.ds) > 1:
+            # More than one dislocation -- we need to update the rotation
+            # and location of each previous dislocation.
 
+            # Rotate dislocations (including the currently added one).
+            new_ds = []
+            new_d_rts = []
+            for i, d in enumerate(d_state.ds):
+                new_d, new_d_rt = rotate_dislocation(
+                    crystal=crystal, d_state=d_state,
+                    rotated_dislocation=d,
+                    exclude_beta={i}
+                )
+                new_ds.append(new_d)
+                new_d_rts.append(new_d_rt)
+
+            d_state = DislocationsState(ds=new_ds, ds_rt=new_d_rts)
+
+            # Displace dislocations (a single Newton procedure step).
+            # (excluding the currently added one).
+            new_ds = []
+            for i, d in enumerate(d_state.ds[:-1]):
+                current_p = cp.asarray(d.position)
+                current_u = get_u_new(  # (3, )
+                    crystal=crystal,
+                    x=current_p.reshape(1, -1),
+                    d_state=d_state,
+                    d_n=d_state.ds[-1],
+                    # Exclude beta for the displaced dislocation
+                    exclude_beta={i},
+                    skip_np1=False,
+                    n_points=n_points
+                ).squeeze()
+                current_p = current_p + current_u
+                new_d = _set_d(d, position=current_p)
+                new_ds.append(new_d)
+
+            new_ds.append(d_state.ds[-1])
+
+            d_state = DislocationsState(ds=new_ds, ds_rt=new_d_rts)
+
+        glide_plane = find_glide_plane(crystal, d_state, margin=glide_plane_margin)
         # Update atom locations.
         atoms_d_state = d_state
         # atoms_d_state = initial_d_state
@@ -154,16 +167,17 @@ def displace(crystal, dislocations, d_n, n_iters=3, alpha=1.0, skip_np1=False, n
             n_points=n_points
         )
         u_atoms = cp.stack(u_atoms)
-        log.log(d_state=atoms_d_state, u_atoms=u_atoms)
+        log.log(d_state=atoms_d_state, u_atoms=u_atoms, glide_plane=glide_plane)
 
     # Move back all the dislocations and atoms to the global coordinate system.
     # postprocess
     postprocessed_log = DisplacementLog()
-    for u, d in zip(log.u_atoms, log.d_states):
+    for u, d, g in zip(log.u_atoms, log.d_states, log.glide_planes):
         u = miller.postprocess(u).get()
         d = postprocess_dislocations(d_state=d,  miller=miller)
+        glide_plane = miller.postprocess_points(g).get()
 
-        postprocessed_log.log(d_state=d, u_atoms=u)
+        postprocessed_log.log(d_state=d, u_atoms=u, glide_plane=glide_plane)
 
     return postprocessed_log
 
@@ -180,9 +194,10 @@ def get_u_new(x, d_state, crystal, d_n, skip_np1, exclude_beta: set = None,
     n_x = x.shape[0]
 
     paths = []
-    for x_d in x_dash:
+    for i, x_d in enumerate(x_dash):
+        print(f"Integration path: {i}", end="\r")
         p = get_integration_path(
-            x_o=x_o, x_dash=x_d, dislocation=d_n, n_points=n_points
+            x_o=x_o, x_dash=x_d, d_state=d_state, n_points=n_points
         )
         paths.append(p)
 
@@ -197,15 +212,12 @@ def get_u_new(x, d_state, crystal, d_n, skip_np1, exclude_beta: set = None,
     F_2_excluded_beta.add(len(d_state.ds)-1)
     # result = integrate_paths_euler_parallel( # (n traj (atoms), n_steps, 2)
 
-    if skip_np1:
-        F1 = None
-    else:
-        F1 = lambda x: get_F(
-            points=x,
-            crystal=crystal,
-            d_state=d_state,
-            exclude_beta=exclude_beta
-        )
+    F1 = lambda x: get_F(
+        points=x,
+        crystal=crystal,
+        d_state=d_state,
+        exclude_beta=exclude_beta
+    )
 
     result = integrate_paths_trapezoid_parallel( # (n traj (atoms), n_steps, 2)
         x0=x_o,
@@ -213,12 +225,12 @@ def get_u_new(x, d_state, crystal, d_n, skip_np1, exclude_beta: set = None,
         # F_{\Sigma_{N+1}}
         F1=F1,
         # F_{\Sigma_N}
-        F2=lambda x: get_F_inv(
-            points=x,
-            crystal=crystal,
-            d_state=d_state,
-            exclude_beta=F_2_excluded_beta
-        )
+        F2=None # lambda x: get_F_inv(
+            # points=x,
+            # crystal=crystal,
+            # d_state=d_state,
+            # exclude_beta=F_2_excluded_beta
+        # )
     )
     result = result[:, -1, :]  # Use the final integration value (n atoms, 2)
     # Just for the backward compatibility -- return displacement instead of the
@@ -329,14 +341,14 @@ def integrate_paths_trapezoid_parallel(x0, path_points, F1, F2):
         dl = dl_list[:, i, :]
 
         # --- f(y_i, p_i) ---
-        F2p = F2(p)
-
-        if F1 is not None:
-            F1y = F1(y)
-            mat = cp.matmul(F1y, F2p)
-        else:
-            mat = F2p
-
+        # F2p = F2(p)
+        #
+        # if F1 is not None:
+        #     F1y = F1(y)
+        #     mat = cp.matmul(F1y, F2p)
+        # else:
+        #     mat = F2p
+        mat = F1(y)
         f_i = cp.einsum('nij,nj->ni', mat, dl)
 
         # provisional step y* and next path point p_{i+1}
@@ -344,13 +356,14 @@ def integrate_paths_trapezoid_parallel(x0, path_points, F1, F2):
         p_next = p + dl
 
         # --- f(y*, p_{i+1}) ---
-        F2p_next = F2(p_next)
-
-        if F1 is not None:
-            F1y_star = F1(y_star)
-            mat_star = cp.matmul(F1y_star, F2p_next)
-        else:
-            mat_star = F2p_next
+        # F2p_next = F2(p_next)
+        #
+        # if F1 is not None:
+        #     F1y_star = F1(y_star)
+        #     mat_star = cp.matmul(F1y_star, F2p_next)
+        # else:
+        #     mat_star = F2p_next
+        mat_star = F1(y_star)
 
         f_star = cp.einsum('nij,nj->ni', mat_star, dl)
 
@@ -429,12 +442,25 @@ class DislocationsState:
         return self.ds[-1]
 
 
-def get_integration_path(x_o, x_dash, dislocation, n_points=30000):
+def get_integration_path(x_o, x_dash, d_state, n_points=30000):
     # TODO replace with RTT
+    # TODO should depend on the dislocation line direction
+    # (currently works only with [1, 0, 0])
+    
+    d0 = d_state.ds[0]
+    dislocation = d_state.ds[-1]
+    d_y = dislocation.position[1]
     direction = cp.sign(x_dash.squeeze()[1] - cp.asarray(dislocation.position)[1])
+    d_pos_cpu = cp.asarray(dislocation.position).get()
     if direction == 0:
         raise ValueError("there should be no point located exactly at y=0")
-    offset = direction * cp.asarray([0.0, 10.0, 0.0])
+
+    offset = direction * cp.asarray([0.0, 20.0, 0.0])
+
+    if direction < 0.0:
+        if x_dash[1] > d0.position[1]:
+            offset = direction * cp.asarray([0.0, 2.0, 0.0])
+
     x_o1 = cp.asarray(x_o).squeeze() + offset
     x_o2 = cp.asarray([x_dash.squeeze()[0].item(), x_o1[1].item(), 0])
 
@@ -442,6 +468,33 @@ def get_integration_path(x_o, x_dash, dislocation, n_points=30000):
     l2 = get_line(x_o1, x_o2, n=n_points)
     l3 = get_line(x_o2, x_dash, n=n_points)
     points = cp.concatenate((l1, l2, l3), axis=0)
+    # TODO is accepted:
+    # avoid dislocations
+
+    # x_o = x_o.get()
+    # x_dash = x_dash.get()
+    #
+    # def is_restricted(x, y):
+    #     TOL = 4.0
+    #     for d in d_state.ds:
+    #         if np.linalg.norm(d_pos_cpu[:2]-np.asarray((x, y))) < TOL:
+    #             return True
+    #
+    #     if direction < 0.0:
+    #         return y > d_y-0.1
+    #     else:
+    #         return y < d_y + 0.1
+    #
+    #
+    # from rrt import rrt
+    # points, _ = rrt(
+    #     start=x_o[:2], goal=x_dash[:2], is_restricted=is_restricted,
+    #     step_size=2.0,
+    #     x_range=(-50, 50), y_range=(-50, 50),
+    #     max_iter=10000
+    # )
+    # print(points.shape)
+
     return points
 
 
@@ -454,7 +507,7 @@ def get_u(point, d_n, crystal, d_state: DislocationsState,
     if exclude_beta is None:
         exclude_beta = {}
 
-    points = get_integration_path(x_o=x_o, x_dash=x_dash, dislocation=d_n)
+    points = get_integration_path(x_o=x_o, x_dash=x_dash, d_state=d_state)
     vals = integrand(
         points=points,
         crystal=crystal,
@@ -526,7 +579,7 @@ def beta_rotated(crystal, d, points, rotation_matrix, dis_tolerance=DIS_TOLERANC
     betas = beta(points, be=be, bz=bz)[:, :2, :2]
     rm = rotation_matrix[:2, :2].reshape(1, 2, 2)
     # KLUCZOWA INSTRUKCJA
-    betas = rm.transpose((0, 2, 1)) @ betas @ rm
+    betas = rm @ betas @ rm.transpose((0, 2, 1))
     return betas
 
 
@@ -575,17 +628,44 @@ def rotate_dislocation(crystal, d_state, rotated_dislocation, exclude_beta):
     """
     bv, p = rotated_dislocation.b, rotated_dislocation.position[:2]
     bv = cp.asarray(bv)
+
+    # initial_rotation_matrix = estimate_rotation_matrix_from_vector(bv)
     rm = get_rotation_matrix(
         p=p,
         crystal=crystal, d_state=d_state,
         exclude_beta=exclude_beta
     )
+    # Rotate
     b = rm[:2, :2].dot(bv[:2]).squeeze()
+    # normalize/restore the initial norm (TODO is it OK?)
     orig_norm = cp.linalg.norm(bv)
     b = b/cp.linalg.norm(b)*orig_norm
     b = cp.asarray(b.tolist() + [0])
     new_d = _set_d(rotated_dislocation, b=b)
+
+    # determine the initial rotation
+    # TODO
+    # rm = initial_rotation_matrix @ rm
+
     return new_d, rm
+
+
+
+def estimate_rotation_matrix_from_vector(vector):
+    # normalizacja wektora (x, y)
+
+    x, y, z = vector.squeeze()
+    norm = np.sqrt(x**2 + y**2)
+    if norm == 0:
+        raise ValueError("The vector cannot be zero")
+    x, y = x / norm, y / norm
+    theta = cp.arctan2(y, x)
+
+    return cp.array([
+        [cp.cos(theta), -cp.sin(theta)],
+        [cp.sin(theta),  cp.cos(theta)]
+    ])
+
 
 
 def get_rotation_matrix(crystal, d_state, p, exclude_beta):
@@ -627,3 +707,46 @@ def _set_d(dislocation, **kwargs):
     kwargs replaced.
     """
     return dataclasses.replace(dislocation, **kwargs)
+
+
+## Glide plane
+def get_glide_plane(crystal, d_state, exclude_beta, margin=30):
+    d_n = d_state.ds[-1]
+    # NOTE: y0 must be determined for system located in the d2
+    def func(t, y):
+        # print(t)
+        # print(y.shape)
+        point = np.asarray([t, y.item()]).reshape(1, -1)
+        betas = beta_sigma(
+            points=point,
+            crystal=crystal,
+            d_state=d_state,
+            exclude_beta=exclude_beta
+        ).get().squeeze()  # TODO avoid GPU -> CPU
+        F_inv = np.eye(2) - betas
+        return np.asarray([F_inv[1, 0] / F_inv[1, 1]])
+
+    x0, y0, _ = np.squeeze(d_n.position)
+    # TODO: rotate according to the burgers vector (this will not work for e.g. b = (1, 1, 0))
+    t_span = (x0, -margin)
+
+    # TODO zmienic ponizsze tak, zeby bylo bardziej ogolne
+    ode_res = scipy.integrate.solve_ivp(
+        func,
+        t_span=t_span, y0=[y0],
+        method="BDF",
+        rtol=1e-8, atol=1e-10, max_step=0.1
+    )
+    n_points = len(ode_res.t)
+    result = np.zeros((n_points, 3))
+    # left side
+    result[:, 0] = np.flip(np.squeeze(ode_res.t))
+    result[:, 1] = np.flip(np.squeeze(-ode_res.y))
+    return result
+
+
+def find_glide_plane(crystal, d_state, margin=30):
+    # CALCULATE THE FINAL PLANE
+    return cp.asarray(get_glide_plane(crystal=crystal, d_state=d_state,
+                                      exclude_beta={len(d_state.ds)-1},
+                                      margin=margin))

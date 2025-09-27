@@ -1,6 +1,7 @@
 import cupy as cp
 import numpy as np
 import wurtzite as wzt
+import dataclasses
 
 
 def line_integral(path, vals):
@@ -54,6 +55,18 @@ class MillerIndices:
         x = self.rt.dot(x.T).T
         x = x - self.cd.reshape(1, -1)
         return x
+
+    def preprocess_dislocation(self, d):
+        new_position = self.preprocess(cp.asarray(d.position))
+        new_b = self.preprocess_vector(cp.asarray(d.b))
+        return dataclasses.replace(
+            d,
+            position=new_position.squeeze(),
+            b=new_b.squeeze()
+        )
+
+    def preprocess_vector(self, v):
+        return self.rt.dot(v.T).T
 
     def postprocess(self, u):
         return self.rt_inv.dot(u.T).T
