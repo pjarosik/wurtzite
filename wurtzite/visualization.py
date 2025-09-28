@@ -22,6 +22,7 @@ import wurtzite.model
 from wurtzite.model import Crystal
 from pathlib import Path
 import os
+import wurtzite.dislocations
 
 pn.extension("vtk")
 
@@ -568,7 +569,18 @@ def display_crystal_with_dislocations(crystal, dis):
 
 
 def display_tee_2d(ax, d: wurtzite.model.DislocationDef, line_width=6, zorder=10000, scale=1.0, fontsize="medium",
-                   label_offset: tuple = (0, -1)):
+                   label_offset: tuple = (0, -1), cell: wurtzite.model.UnitCellDef = None):
+    
+    if cell is not None:
+        # Rotate the vector to have the vector in the global coordinate system
+        # R.t. from the global to the local coordinate system
+        rt = wurtzite.dislocations._get_rotation_tensor(
+            burgers_vector=d.b, plane=d.plane, cell=cell)
+        # local -> global
+        rt_inv = rt.T
+        new_b = rt_inv.dot(np.asarray([1.0, 0.0, 0.0]).T).squeeze()
+        d = dataclasses.replace(d, b=new_b)
+
     line_width *= scale
     pos, b = np.asarray(d.position), np.asarray(d.b)*scale
     t_left_x, t_left_y = pos[:2] - b[:2]  # left
