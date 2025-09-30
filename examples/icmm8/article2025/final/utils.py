@@ -75,6 +75,19 @@ class MillerIndices:
         x = x + self.cd.reshape(1, -1)
         return self.rt_inv.dot(x.T).T
 
+    def postprocess_dislocation(self, dislocation):
+        print(f"Before: {dislocation.b}")
+        new_b = self.postprocess(u=cp.asarray(dislocation.b).reshape(1, -1))
+        print(f"After: {new_b}")
+        new_position = self.postprocess_points(
+            x=cp.asarray(dislocation.position).reshape(1, -1)
+        )
+        return dataclasses.replace(
+            dislocation,
+            position=new_position.get().squeeze(),
+            b=new_b.get().squeeze()
+        )
+
 
 def broadcast_eye(n, nrepeats):
     return cp.array([cp.eye(n)]*nrepeats)

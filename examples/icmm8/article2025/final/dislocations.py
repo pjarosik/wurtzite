@@ -83,12 +83,9 @@ def displace(crystal, dislocations, d_n, n_iters=3, alpha=1.0, skip_np1=False, n
     miller = MillerIndices(crystal=crystal, dislocation=d_n)
     # (n atoms, 3)
     # - The introduced dislocation (move to the (0, 0, 0))
-    initial_dn_local = dataclasses.replace(d_n, position=[0.0, 0, 0])
+    initial_dn_local = dataclasses.replace(d_n, position=[0.0, 0, 0], b=[1.0, 0.0, 0.0])
     # - Other dislocations
-    d_positions = cp.asarray([d.position for d in dislocations])  # (n disl. 3)
-    d_positions = miller.preprocess(d_positions)  # (n disl. 3)
-    initial_ds_local = [_set_d(d_i, position=p)
-                for d_i, p in zip(dislocations, d_positions)]
+    initial_ds_local = [miller.preprocess_dislocation(d) for d in dislocations]
     # - Atoms
     initial_atoms_local = miller.preprocess(cp.asarray(crystal.coordinates))
     all_dislocations_local = initial_ds_local + [initial_dn_local]
@@ -108,6 +105,7 @@ def displace(crystal, dislocations, d_n, n_iters=3, alpha=1.0, skip_np1=False, n
     # Initialize with u = 0.
     log.log(d_state=d_state, u_atoms=cp.zeros(shape=initial_atoms_local.shape),
             glide_plane=glide_plane)
+
 
     for i in range(n_iters):
 
@@ -129,8 +127,7 @@ def displace(crystal, dislocations, d_n, n_iters=3, alpha=1.0, skip_np1=False, n
 
             d_state = DislocationsState(ds=new_ds, ds_rt=new_d_rts)
 
-            # Displace dislocations (a single Newton procedure step).
-            # (excluding the currently added one).
+            # Displace dislocations (excluding the currently added one).
             new_ds = []
             for i, d in enumerate(d_state.ds[:-1]):
                 current_p = cp.asarray(d.position)
@@ -174,9 +171,12 @@ def displace(crystal, dislocations, d_n, n_iters=3, alpha=1.0, skip_np1=False, n
     postprocessed_log = DisplacementLog()
     for u, d, g in zip(log.u_atoms, log.d_states, log.glide_planes):
         u = miller.postprocess(u).get()
-        d = postprocess_dislocations(d_state=d,  miller=miller)
         glide_plane = miller.postprocess_points(g).get()
-
+        new_ds = []
+        for dislocation in d.ds:
+            dislocation = miller.postprocess_dislocation(dislocation)
+            new_ds.append(dislocation)
+        d = dataclasses.replace(d, ds=new_ds)
         postprocessed_log.log(d_state=d, u_atoms=u, glide_plane=glide_plane)
 
     return postprocessed_log
@@ -455,7 +455,7 @@ def get_integration_path(x_o, x_dash, d_state, n_points=30000):
     if direction == 0:
         raise ValueError("there should be no point located exactly at y=0")
 
-    offset = direction * cp.asarray([0.0, 20.0, 0.0])
+    offset = direction * cp.asarray([0.0, 5.0, 0.0])
 
     if direction < 0.0:
         if x_dash[1] > d0.position[1]:
@@ -575,7 +575,7 @@ def beta_rotated(crystal, d, points, rotation_matrix, dis_tolerance=DIS_TOLERANC
     be, bz = get_be_bz(crystal.cell, d.b)
     # Przenieś do układu zaczepionego w dyslokacji (istotne np. dla d1).
     points = cp.asarray(points) - cp.asarray(d.position[:2]).reshape(1, -1)
-    points = rotation_matrix.dot(points.T).T
+    points = rotation_matrix.T.dot(points.T).T
     betas = beta(points, be=be, bz=bz)[:, :2, :2]
     rm = rotation_matrix[:2, :2].reshape(1, 2, 2)
     # KLUCZOWA INSTRUKCJA
@@ -629,26 +629,25 @@ def rotate_dislocation(crystal, d_state, rotated_dislocation, exclude_beta):
     bv, p = rotated_dislocation.b, rotated_dislocation.position[:2]
     bv = cp.asarray(bv)
 
-    # initial_rotation_matrix = estimate_rotation_matrix_from_vector(bv)
     rm = get_rotation_matrix(
-        p=p,
+        p=p, bv=bv,
+        crystal=crystal, d_state=d_state,
+        exclude_beta=exclude_beta
+    )
+    global_rm = get_rotation_matrix(
+        p=p, bv=[1.0, 0.0, 0.0],
         crystal=crystal, d_state=d_state,
         exclude_beta=exclude_beta
     )
     # Rotate
-    b = rm[:2, :2].dot(bv[:2]).squeeze()
-    # normalize/restore the initial norm (TODO is it OK?)
+    b = global_rm[:2, :2].dot(bv[:2]).squeeze()
+    # normalize/restore the initial norm
     orig_norm = cp.linalg.norm(bv)
     b = b/cp.linalg.norm(b)*orig_norm
     b = cp.asarray(b.tolist() + [0])
     new_d = _set_d(rotated_dislocation, b=b)
 
-    # determine the initial rotation
-    # TODO
-    # rm = initial_rotation_matrix @ rm
-
     return new_d, rm
-
 
 
 def estimate_rotation_matrix_from_vector(vector):
@@ -667,8 +666,7 @@ def estimate_rotation_matrix_from_vector(vector):
     ])
 
 
-
-def get_rotation_matrix(crystal, d_state, p, exclude_beta):
+def get_rotation_matrix(crystal, d_state, p, bv, exclude_beta):
     """
     Returns the given
 
@@ -687,7 +685,7 @@ def get_rotation_matrix(crystal, d_state, p, exclude_beta):
     F_inv = (BETA_ONES - betas)
     F = cp.linalg.inv(F_inv[0, :2, :2])
 
-    ba = cp.asarray([1.0, 0.0])
+    ba = cp.asarray(bv).squeeze()[:2]
 
     ba_rotated = F.dot(ba)
     ba = ba_rotated / cp.linalg.norm(ba_rotated)
