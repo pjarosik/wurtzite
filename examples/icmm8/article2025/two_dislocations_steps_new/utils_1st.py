@@ -21,7 +21,7 @@ def love_function2(x: np.ndarray, be: float, bz: float) -> np.ndarray:
     x2_norm = x2 / r
     r02 = RADIUS_FACTOR * be ** 2
 
-    ux = be / (2 * np.pi) * (np.arctan2(x2_norm, x1_norm) + x1_norm * x2_norm / (2.0 * (1 - NU)))
+    ux = be / (2 * np.pi) * (np.arctan2(x2_norm, x1_norm) + x1_norm * x2_norm / (2.0 * (1 - NU))) - be/4
     uy = -be / (8 * np.pi * (1 - NU)) * ((1.0 - NU - NU) * np.log(r2 / r02) + (x1_norm + x2_norm) * (x1_norm - x2_norm))
     uz = bz / (2 * np.pi) * np.arctan2(x2_norm, x1_norm)
 

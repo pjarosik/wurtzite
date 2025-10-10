@@ -197,7 +197,9 @@ def get_u_new(x, d_state, crystal, d_n, skip_np1, exclude_beta: set = None,
     for i, x_d in enumerate(x_dash):
         print(f"Integration path: {i}", end="\r")
         p = get_integration_path(
-            x_o=x_o, x_dash=x_d, d_state=d_state, n_points=n_points
+            x_o=x_o, x_dash=x_d, d_state=d_state, n_points=n_points,
+            excluded_dislocations=exclude_beta,
+            debug=(i == 19)
         )
         paths.append(p)
 
@@ -442,50 +444,81 @@ class DislocationsState:
         return self.ds[-1]
 
 
-def get_integration_path(x_o, x_dash, d_state, n_points=30000):
+def get_integration_path(
+        x_o, x_dash, d_state, n_points=30000, debug=False,
+        excluded_dislocations=(),
+    ):
     # TODO replace with RTT
     # TODO should depend on the dislocation line direction
     # (currently works only with [1, 0, 0])
-    
-    d0 = d_state.ds[0]
+    excluded_dislocations = set(excluded_dislocations)
+
     dislocation = d_state.ds[-1]
     d_y = dislocation.position[1]
     direction = cp.sign(x_dash.squeeze()[1] - cp.asarray(dislocation.position)[1])
-    d_pos_cpu = cp.asarray(dislocation.position).get()
+
+    d_position = [cp.asarray(d.position).get()
+                  for i, d in enumerate(d_state.ds)
+                  if i not in excluded_dislocations]
     if direction == 0:
         raise ValueError("there should be no point located exactly at y=0")
 
-    offset = direction * cp.asarray([0.0, 5.0, 0.0])
-
-    if direction < 0.0:
-        if x_dash[1] > d0.position[1]:
-            offset = direction * cp.asarray([0.0, 2.0, 0.0])
-
-    x_o1 = cp.asarray(x_o).squeeze() + offset
-    x_o2 = cp.asarray([x_dash.squeeze()[0].item(), x_o1[1].item(), 0])
-
-    l1 = get_line(x_o, x_o1, n=n_points)
-    l2 = get_line(x_o1, x_o2, n=n_points)
-    l3 = get_line(x_o2, x_dash, n=n_points)
-    points = cp.concatenate((l1, l2, l3), axis=0)
+    # offset = direction * cp.asarray([0.0, 5.0, 0.0])
+    #
+    # if direction < 0.0:
+    #     if x_dash[1] > d0.position[1]:
+    #         offset = direction * cp.asarray([0.0, 2.0, 0.0])
+    #
+    # x_o1 = cp.asarray(x_o).squeeze() + offset
+    # x_o2 = cp.asarray([x_dash.squeeze()[0].item(), x_o1[1].item(), 0])
+    #
+    # l1 = get_line(x_o, x_o1, n=n_points)
+    # l2 = get_line(x_o1, x_o2, n=n_points)
+    # l3 = get_line(x_o2, x_dash, n=n_points)
+    # points = cp.concatenate((l1, l2, l3), axis=0)
     # TODO is accepted:
     # avoid dislocations
 
-    # x_o = x_o.get()
-    # x_dash = x_dash.get()
-    #
-    # def is_restricted(x, y):
-    #     TOL = 4.0
-    #     for d in d_state.ds:
-    #         if np.linalg.norm(d_pos_cpu[:2]-np.asarray((x, y))) < TOL:
-    #             return True
-    #
-    #     if direction < 0.0:
-    #         return y > d_y-0.1
-    #     else:
-    #         return y < d_y + 0.1
-    #
-    #
+    x_o = x_o.get()
+    x_dash = x_dash.get()
+
+    if debug:
+        print(f"x_o: {x_o}")
+        print(f"x_dash: {x_dash}")
+
+
+
+    def is_restricted(x, y, tolerance=0.5):
+
+        for d_i, d in enumerate(d_position):
+            if np.linalg.norm(d[:2]-np.asarray((x, y))) < tolerance:
+                return True
+
+        glide_plane_tolerance = 1e-6
+
+        if direction < 0.0:
+            return y > d_y - glide_plane_tolerance
+        else:
+            return y < d_y + glide_plane_tolerance
+
+    from astar import astar, interpolate_path
+    # print("x_o restricted ", is_restricted(x_o[0], x_o[1]),
+    #       " x_dash restricted ", is_restricted(x_dash[0], x_dash[1]))
+
+    points = astar(start=x_o, goal=x_dash, is_restricted=is_restricted, step=1, goal_tol=2.0)
+
+    if debug:
+        import matplotlib.pyplot as plt
+        plt.figure()
+        plt.scatter(x_o[0], x_o[1], color="red")
+        plt.scatter(x_dash[0], x_dash[1], color="green")
+        plt.plot(np.stack(points)[:, 0], np.stack(points)[:, 1])
+        plt.show()
+
+    points = interpolate_path(points, n_points=n_points)
+    points = np.stack(points)
+
+    # print(points.shape)
     # from rrt import rrt
     # points, _ = rrt(
     #     start=x_o[:2], goal=x_dash[:2], is_restricted=is_restricted,

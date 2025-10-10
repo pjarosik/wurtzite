@@ -480,7 +480,6 @@ def find_cp_integral(l, d1_local, d2_local, d1_rt, d2_rt, y0_range=(-1, 1), npoi
     # Find the plane
     a = np.argmin(ds)
     y0 = y0s[a]
-
     # CALCULATE THE FINAL PLANE
     return get_cp_integral(l=l, y_start=y0, d1_local=d1_local, d2_local=d2_local,
                            d1_rt=d1_rt, d2_rt=d2_rt, enable_beta2=True)

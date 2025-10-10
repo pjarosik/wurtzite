@@ -50,6 +50,7 @@ def displace_love2(
         plane: Union[Sequence[float], np.ndarray],
         l_function=love_function2,
         bv_fraction: float = 1.0,
+        n_iter=10,
 ) -> Tuple[np.ndarray, np.ndarray]:
     position = np.asarray(position)
     burgers_vector = np.asarray(burgers_vector)
@@ -96,7 +97,7 @@ def displace_love2(
     all_us = []
     for i, coords in enumerate(x_all):
         u0 = np.zeros(3)
-        u, us = newton_raphson(x0=u0, n_iter=10, f=f, jacobian=jacobian,
+        u, us = newton_raphson(x0=u0, n_iter=n_iter, f=f, jacobian=jacobian,
                                x=coords)
         result_u[i] = u
         all_us.append(np.stack(us))
