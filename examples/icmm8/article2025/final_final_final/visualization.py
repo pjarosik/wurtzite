@@ -7,6 +7,69 @@ import matplotlib.pyplot as plt
 import wurtzite
 
 
+def plot_displacement(
+    lattice, u, 
+    xlabel="OX ($\AA$)", ylabel="OY ($\AA$)", 
+    title="", 
+    dislocation_core_position=None, 
+    dislocation_core_u=None, 
+    fig=None, ax=None,
+    show_labels=True, label_precision=2, div=1.0
+):
+    if fig is None or ax is None:
+        fig, ax = plt.subplots()
+    ax.set_xlabel(xlabel)
+    ax.set_ylabel(ylabel)
+
+    y_dim = 1
+    x_dim = 0
+
+    # Rysowanie wektorów
+    if u is not None:
+        q = ax.quiver(
+            lattice.coordinates[..., x_dim], lattice.coordinates[..., y_dim], 
+            u[..., x_dim], u[..., y_dim], 
+            color=wzt.visualization.vectors_to_rgb(u[..., (x_dim, y_dim)])
+        )
+
+    # Opcjonalnie dodanie długości wektora
+    if show_labels:
+        lengths = np.linalg.norm(u[..., (x_dim, y_dim)], axis=-1)/div
+        for (x, y, dx, dy, l) in zip(
+            lattice.coordinates[..., x_dim].flatten(),
+            lattice.coordinates[..., y_dim].flatten(),
+            u[..., x_dim].flatten(),
+            u[..., y_dim].flatten(),
+            lengths.flatten()
+        ):
+            if l > 1e-10:  # unikamy zerowych wektorów
+                ax.text(
+                    x + dx, y + dy + 0.05, 
+                    f"{l:.{label_precision}f}b", 
+                    fontsize=8, ha="center", va="bottom", color="black"
+                )
+
+    # Pozycja rdzenia dyslokacji
+    if dislocation_core_position is not None:
+        pos_x, pos_y, _ = dislocation_core_position
+        u_x, u_y, _ = dislocation_core_u
+        l = np.hypot(u_x, u_y)/div
+        q = ax.quiver(
+            pos_x, pos_y, 
+            u_x, u_y, 
+            color=wzt.visualization.vectors_to_rgb(np.asarray([u_x, u_y, 0]).reshape(1, -1))
+        )
+        if show_labels:
+            ax.text(
+                pos_x + u_x, pos_y + u_y + 0.05, 
+                    f"{l:.{label_precision}f}b", 
+                    fontsize=8, ha="center", va="bottom", color="black"
+                    )
+
+    fig.tight_layout()
+    return fig, ax
+
+
 def plot_distances(ax, d, a, b):
     a_dist = np.hypot(d.position[0] - a[0], d.position[1] - a[1])
     b_dist = np.hypot(d.position[0] - b[0], d.position[1] - b[1])

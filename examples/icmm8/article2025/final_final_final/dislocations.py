@@ -16,6 +16,7 @@ from utils import get_be_bz, broadcast_eye, get_line, line_integral, \
 import cupy as cp
 from constants import *
 
+
 # 1. Przetestowac z jedna dyslokacja
 # 2. Zaimplementowac wyznaczanie plaszczyzn rozciecia uzywajac calki (to jedyne rozwiazanie, zeby zadzialao dla n dyslokacji), dodac wyznaczanie gora/dol wg tego
 # 3. Przetestowac z dwiema dyslokacjami, zgodnie z prosba
@@ -81,7 +82,7 @@ def postprocess_dislocations(d_state, miller):
 
 
 def displace(crystal, dislocations, d_n, n_iters=3, alpha=1.0, skip_np1=False, n_points=30000,
-             glide_plane_margin=45, points=()):
+             glide_plane_margin=45, points=(), debug=False):
     """
     Displaces the given crystal lattice according to the displacements
     caused by the dislocation d.
@@ -148,49 +149,53 @@ def displace(crystal, dislocations, d_n, n_iters=3, alpha=1.0, skip_np1=False, n
 
             # Displace dislocations (excluding the currently added one).
             new_ds = []
-            for i, (d, initial_d) in enumerate(zip(d_state.ds[:-1], initial_d_state.ds[:-1])):
-                current_p = cp.asarray(d.position)
-                initial_p = cp.asarray(initial_d.position)
+            for i, d in enumerate(initial_d_state.ds[:-1]):
+                initial_p = cp.asarray(d.position)
                 current_u, _ = get_u_new(  # (3, )
                     crystal=crystal,
-                    x=current_p.reshape(1, -1),
-                    # x_0=initial_p.reshape(1, -1),
-                    d_state=d_state,
-                    d_n=d_state.ds[-1],
+                    x=initial_p.reshape(1, -1),
+                    initial_d_state=initial_d_state,
+                    current_d_state=d_state,
+
+                    # UWAGA: bierzemy tutaj initial_d_state ze wzgledu na to,
+                    #  ze jest uzywany tylko do wyznaczenia x_o, a to jest w konfiguracji pierwotnej
+
+                    d_n=initial_d_state.ds[-1],
                     # Exclude beta for the displaced dislocation
                     exclude_beta={i},
                     skip_np1=False,
                     n_points=n_points
                 )
                 current_u = current_u.squeeze()
-                current_p = current_p + current_u
+                current_p = initial_p + current_u
                 new_d = _set_d(d, position=current_p)
                 new_ds.append(new_d)
 
+            # Leave the d_n unmodified.
             new_ds.append(d_state.ds[-1])
-
             d_state = DislocationsState(ds=new_ds, ds_rt=new_d_rts)
 
-    glide_planes = []
+    current_d_state = d_state
 
+    # Find glide planes
+    glide_planes = []
     for i in range(len(d_state.ds)):
         glide_plane = find_glide_plane(
-            crystal, d_state, margin=glide_plane_margin, dislocation_nr=i)
+            crystal, initial_d_state, margin=glide_plane_margin, dislocation_nr=i)
         glide_planes.append(glide_plane)
 
     # Update atom locations.
-    atoms_d_state = d_state
-    # atoms_d_state = initial_d_state
     initial_p = cp.asarray(initial_atoms_local)  # (n atoms, 3)
-    # print(atoms_d_state.ds)
 
     u_atoms, aux = get_u_new(  # (n atoms, 3)
         crystal=crystal,
         x=initial_p,
-        d_state=atoms_d_state,
-        d_n=atoms_d_state.ds[-1],
+        initial_d_state=initial_d_state,
+        current_d_state=current_d_state,
+        d_n=initial_d_state.ds[-1],
         skip_np1=skip_np1,
-        n_points=n_points
+        n_points=n_points,
+        debug=debug,
     )
     u_atoms = cp.stack(u_atoms)
 
@@ -200,15 +205,16 @@ def displace(crystal, dislocations, d_n, n_iters=3, alpha=1.0, skip_np1=False, n
             u_points, _ = get_u_new(  # (n atoms, 3)
                 crystal=crystal,
                 x=pp,
-                d_state=atoms_d_state,
-                d_n=atoms_d_state.ds[-1],
+                initial_d_state=initial_d_state,
+                current_d_state=initial_d_state,
+                d_n=initial_d_state.ds[-1],
                 skip_np1=skip_np1,
                 n_points=n_points
             )
             pp = pp + u_points
             output_points.append(pp)
         
-    log.log(d_state=atoms_d_state, u_atoms=u_atoms,
+    log.log(d_state=current_d_state, u_atoms=u_atoms,
         glide_planes=glide_planes,
         points=output_points,
         integration_paths=aux["integration_paths"]
@@ -257,18 +263,15 @@ def displace(crystal, dislocations, d_n, n_iters=3, alpha=1.0, skip_np1=False, n
     return postprocessed_log
 
 
-def get_u_new(x, d_state, crystal, d_n, skip_np1, exclude_beta: set = None,
-              n_points=20000, debug=False, x_0=None):
+def get_u_new(x, initial_d_state, crystal, d_n, skip_np1, current_d_state,
+              exclude_beta: set = None, n_points=20000, debug=False):
     """
     :param x_0: the initial position of the atom (before iterating)
     """
 
-    if x_0 is None:
-        x_0 = x
-
     be, bz = get_be_bz(crystal.cell, d_n.b)
     x_o = cp.asarray([0.5 * be.item(), 0.0, 0.0])
-    x_dash = x_0
+    x_dash = x
 
     if exclude_beta is None:
         exclude_beta = set()
@@ -277,9 +280,13 @@ def get_u_new(x, d_state, crystal, d_n, skip_np1, exclude_beta: set = None,
 
     paths = []
     for i, x_d in enumerate(x_dash):
+
+        # UWAGA: tutaj jest licze wg konfiguracji pierwotnej, gdyz sciezke
+        #  calkowania tez mamy wg konfiguracji pierwotnej (int_{x_o}^{\dash{x}}
+
         print(f"Integration path: {i}", end="\r")
         p = get_integration_path(
-            x_o=x_o, x_dash=x_d, d_state=d_state, n_points=n_points,
+            x_o=x_o, x_dash=x_d, d_state=initial_d_state, n_points=n_points,
             excluded_dislocations=exclude_beta,
         )
         paths.append(p)
@@ -296,23 +303,39 @@ def get_u_new(x, d_state, crystal, d_n, skip_np1, exclude_beta: set = None,
 
     # F_2_{\Sigma_N} (!)
     F_2_excluded_beta = exclude_beta.copy()
-    F_2_excluded_beta.add(len(d_state.ds)-1)
+    F_2_excluded_beta.add(len(initial_d_state.ds) - 1)
     # result = integrate_paths_euler_parallel( # (n traj (atoms), n_steps, 2)
 
     F1 = lambda x: get_F(
         points=x,
         crystal=crystal,
-        d_state=d_state,
+        d_state=current_d_state,
         exclude_beta=exclude_beta
     )
 
     F2 = lambda x: get_F_inv(
         points=x,
         crystal=crystal,
-        d_state=d_state,
+        d_state=initial_d_state,
         exclude_beta=F_2_excluded_beta
     )
 
+
+    # DEBUG
+    if debug:
+        import matplotlib.pyplot as plt
+        plt.figure()
+        for d in initial_d_state.ds:
+            d_pos = d.position
+            d_pos = d_pos.get() if isinstance(d_pos, cp.ndarray) else d_pos            
+            plt.scatter(d_pos[0], d_pos[1], color="red")
+        for d in current_d_state.ds:
+            d_pos = d.position
+            d_pos = d_pos.get() if isinstance(d_pos, cp.ndarray) else d_pos
+            plt.scatter(d_pos[0], d_pos[1], color="blue")
+        plt.plot(paths.get()[129, :, 0], paths.get()[129, :, 1])
+        plt.show()
+            
     # if x_dash.shape[056] > 1:
     #     p = paths[19]
     #     v = F1(p)
@@ -333,7 +356,7 @@ def get_u_new(x, d_state, crystal, d_n, skip_np1, exclude_beta: set = None,
     # Just for the backward compatibility -- return displacement instead of the
     # final position.
     result = cp.concatenate((result, cp.zeros((n_x, 1))), axis=1)
-    u = result - x_0
+    u = result - x
     return u, {"integration_paths": paths_orig}
 
 
