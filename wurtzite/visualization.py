@@ -22,6 +22,7 @@ import wurtzite.model
 from wurtzite.model import Crystal
 from pathlib import Path
 import os
+import wurtzite.dislocations
 
 pn.extension("vtk")
 
@@ -443,7 +444,7 @@ def _lighten_color(color, amount=1.0):
 
 def plot_atoms_2d(lattice, offset=5, figsize=None, xlim=None, ylim=None, xlabel=None, ylabel=None,
                   alpha: float=1.0, fig=None, ax=None, axis_font_size=14, start_z=None, end_z=None,
-                  highlighted_atoms=None):
+                  highlighted_atoms=None, aspect="equal"):
     """
     Display the lattice on the 2D plane.
 
@@ -496,6 +497,7 @@ def plot_atoms_2d(lattice, offset=5, figsize=None, xlim=None, ylim=None, xlabel=
         ylim = [np.min(coords[:, 1])-offset, np.max(coords[:, 1])+offset]
     ax.set_xlim(xlim)
     ax.set_ylim(ylim)
+    ax.set_aspect(aspect)
     if figsize is None:
         # keep the correct aspect ratio
         x_min, x_max = xlim
@@ -567,7 +569,18 @@ def display_crystal_with_dislocations(crystal, dis):
 
 
 def display_tee_2d(ax, d: wurtzite.model.DislocationDef, line_width=6, zorder=10000, scale=1.0, fontsize="medium",
-                   label_offset: tuple = (0, -1)):
+                   label_offset: tuple = (0, -1), cell: wurtzite.model.UnitCellDef = None):
+    
+    if cell is not None:
+        # Rotate the vector to have the vector in the global coordinate system
+        # R.t. from the global to the local coordinate system
+        rt = wurtzite.dislocations._get_rotation_tensor(
+            burgers_vector=d.b, plane=d.plane, cell=cell)
+        # local -> global
+        rt_inv = rt.T
+        new_b = rt_inv.dot(np.asarray([1.0, 0.0, 0.0]).T).squeeze()
+        d = dataclasses.replace(d, b=new_b)
+
     line_width *= scale
     pos, b = np.asarray(d.position), np.asarray(d.b)*scale
     t_left_x, t_left_y = pos[:2] - b[:2]  # left
