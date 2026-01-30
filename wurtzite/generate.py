@@ -7,7 +7,7 @@ import numpy as np
 
 from wurtzite.model import Crystal, Molecule
 from wurtzite.definitions import UnitCellDef, get_cell_by_name, get_atom_by_number
-from wurtzite.io import convert_from_openbabel, convert_to_openbabel
+# from wurtzite.io import convert_from_openbabel, convert_to_openbabel
 from typing import Tuple, Union
 
 

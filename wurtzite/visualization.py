@@ -13,7 +13,6 @@ import matplotlib.lines
 import panel as pn
 import vtk
 import numpy as np
-from openbabel import openbabel
 
 from vtkmodules.vtkCommonCore import vtkPoints
 from vtkmodules.vtkCommonDataModel import vtkPolyData
@@ -150,12 +149,140 @@ _ATOM_COLORS = [
     0.99, 0.00, 0.06,
 ]
 
+
+_VDW_RADIUS = [
+    1.00,  # 0  sztuczny
+    1.20,  # 1  H
+    1.40,  # 2  He
+    1.82,  # 3  Li
+    1.53,  # 4  Be
+    1.92,  # 5  B
+    1.70,  # 6  C
+    1.55,  # 7  N
+    1.52,  # 8  O
+    1.47,  # 9  F
+    1.54,  # 10 Ne
+    2.27,  # 11 Na
+    1.73,  # 12 Mg
+    1.84,  # 13 Al
+    2.10,  # 14 Si
+    1.80,  # 15 P
+    1.80,  # 16 S
+    1.75,  # 17 Cl
+    1.88,  # 18 Ar
+    2.75,  # 19 K
+    2.31,  # 20 Ca
+    2.30,  # 21 Sc
+    2.15,  # 22 Ti
+    2.05,  # 23 V
+    2.05,  # 24 Cr
+    2.05,  # 25 Mn
+    2.00,  # 26 Fe
+    2.00,  # 27 Co
+    1.63,  # 28 Ni
+    1.40,  # 29 Cu
+    1.39,  # 30 Zn
+    1.87,  # 31 Ga
+    2.11,  # 32 Ge
+    1.85,  # 33 As
+    1.90,  # 34 Se
+    1.85,  # 35 Br
+    2.02,  # 36 Kr
+    3.03,  # 37 Rb
+    2.49,  # 38 Sr
+    2.40,  # 39 Y
+    2.30,  # 40 Zr
+    2.15,  # 41 Nb
+    2.10,  # 42 Mo
+    2.05,  # 43 Tc
+    2.05,  # 44 Ru
+    2.00,  # 45 Rh
+    2.05,  # 46 Pd
+    1.72,  # 47 Ag
+    1.58,  # 48 Cd
+    1.93,  # 49 In
+    2.17,  # 50 Sn
+    2.06,  # 51 Sb
+    2.06,  # 52 Te
+    1.98,  # 53 I
+    2.16,  # 54 Xe
+    3.43,  # 55 Cs
+    2.68,  # 56 Ba
+    2.50,  # 57 La
+    2.48,  # 58 Ce
+    2.47,  # 59 Pr
+    2.45,  # 60 Nd
+    2.43,  # 61 Pm
+    2.42,  # 62 Sm
+    2.40,  # 63 Eu
+    2.38,  # 64 Gd
+    2.37,  # 65 Tb
+    2.35,  # 66 Dy
+    2.33,  # 67 Ho
+    2.32,  # 68 Er
+    2.30,  # 69 Tm
+    2.28,  # 70 Yb
+    2.27,  # 71 Lu
+    2.25,  # 72 Hf
+    2.20,  # 73 Ta
+    2.10,  # 74 W
+    2.05,  # 75 Re
+    2.00,  # 76 Os
+    2.00,  # 77 Ir
+    2.05,  # 78 Pt
+    1.66,  # 79 Au
+    1.55,  # 80 Hg
+    1.96,  # 81 Tl
+    2.02,  # 82 Pb
+    2.07,  # 83 Bi
+    1.97,  # 84 Po
+    2.02,  # 85 At
+    2.20,  # 86 Rn
+    3.48,  # 87 Fr
+    2.83,  # 88 Ra
+    2.00,  # 89 Ac
+    2.40,  # 90 Th
+    2.00,  # 91 Pa
+    2.30,  # 92 U
+    2.00,  # 93 Np
+    2.00,  # 94 Pu
+    2.00,  # 95 Am
+    2.00,  # 96 Cm
+    2.00,  # 97 Bk
+    2.00,  # 98 Cf
+    2.00,  # 99 Es
+    2.00,  # 100 Fm
+    2.00,  # 101 Md
+    2.00,  # 102 No
+    2.00,  # 103 Lr
+    2.00,  # 104 Rf
+    2.00,  # 105 Db
+    2.00,  # 106 Sg
+    2.00,  # 107 Bh
+    2.00,  # 108 Hs
+    2.00,  # 109 Mt
+    2.00,  # 110 Ds
+    2.00,  # 111 Rg
+    2.00,  # 112 Cn
+    2.00,  # 113 Nh
+    2.00,  # 114 Fl
+    2.00,  # 115 Mc
+    2.00,  # 116 Lv
+    2.00,  # 117 Ts
+    2.00,  # 118 Og
+]
+
+
 _ATOM_COLORS = np.asarray(_ATOM_COLORS)
 _ATOM_COLORS = _ATOM_COLORS.reshape(-1, 3)
 
 
 def get_atom_color_rgb(nr) -> Tuple[float, float, float]:
     return _ATOM_COLORS[nr]
+
+
+def get_vdw_radius(nr):
+    return _VDW_RADIUS[nr]
 
 
 class VtkVisualizer:
@@ -236,7 +363,7 @@ class VtkVisualizer:
         for atom in molecule.get_atoms():
             atom_pos = atom.coordinates
             atomic_number = atom.atomic_number
-            radius = openbabel.GetVdwRad(int(atomic_number))
+            radius = get_vdw_radius(int(atomic_number))
             # Color
             rgb = (get_atom_color_rgb(atomic_number) * 255)
             rgb = np.round(rgb).astype(int)
@@ -472,7 +599,7 @@ def plot_atoms_2d(lattice, offset=5, figsize=None, xlim=None, ylim=None, xlabel=
         lattice = wurtzite.generate.update_bonds(lattice)
 
     coords = lattice.coordinates
-    radiuses = [openbabel.GetVdwRad(int(nr)) for nr in lattice.atomic_number]
+    radiuses = [get_vdw_radius(int(nr)) for nr in lattice.atomic_number]
     colors = [(1.0, 0.0, 0.0) if i in highlighted_atoms
               else get_atom_color_rgb(nr)
               for i, nr in enumerate(lattice.atomic_number)]
