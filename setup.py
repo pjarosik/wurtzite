@@ -21,8 +21,9 @@ setuptools.setup(
         "Operating System :: OS Independent",
     ],
     install_requires=[
-        "numpy>=1.19.3",
-        "scipy>=1.3.1",
+        "numpy<2.0.0",
+        "scipy==1.17.0",
+        "matplotlib",
         "panel==1.2.0",  # Visualization
         "vtk==9.2.6"
     ],
