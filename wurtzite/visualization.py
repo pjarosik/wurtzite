@@ -444,7 +444,7 @@ def _lighten_color(color, amount=1.0):
 
 def plot_atoms_2d(lattice, offset=5, figsize=None, xlim=None, ylim=None, xlabel=None, ylabel=None,
                   alpha: float=1.0, fig=None, ax=None, axis_font_size=14, start_z=None, end_z=None,
-                  highlighted_atoms=None, aspect="equal"):
+                  highlighted_atoms=None, aspect="equal", label_indices=False, atom_scale=0.2):
     """
     Display the lattice on the 2D plane.
 
@@ -477,7 +477,7 @@ def plot_atoms_2d(lattice, offset=5, figsize=None, xlim=None, ylim=None, xlabel=
               else get_atom_color_rgb(nr)
               for i, nr in enumerate(lattice.atomic_number)]
     # -z => the atoms closes to the z = 0 are in the foreground
-    circles = [plt.Circle((x, y), r*0.2, color=_lighten_color(c, alpha), zorder=-z)
+    circles = [plt.Circle((x, y), r*atom_scale, color=_lighten_color(c, alpha), zorder=-z)
                for (x, y, z), r, c  in zip(coords, radiuses, colors)]
     bonds = [(coords[b[0]], coords[b[1]]) for b in lattice.bonds]
     # The offset was selected so that the bond is shown in the background of atoms.
@@ -508,6 +508,13 @@ def plot_atoms_2d(lattice, offset=5, figsize=None, xlim=None, ylim=None, xlabel=
     fig.set_size_inches(*figsize)
     ax.set_xlabel("OX ($\AA$)")
     ax.set_ylabel("OY ($\AA$)")
+
+    if label_indices:
+        d = 0.1
+        for i, c in enumerate(lattice.coordinates):
+            x, y, z = c
+            ax.text(x+d, y+d, f"{i}", color="black", fontsize=8)
+    
     return fig, ax
 
 
