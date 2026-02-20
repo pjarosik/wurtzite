@@ -131,26 +131,15 @@ def displace(crystal, dislocations, d_n, n_iters=3, alpha=1.0, skip_np1=False, n
     initial_d_state = d_state
 
     if plot_local:
+        # DEBUG PLOTTING
+
         import matplotlib.pyplot as plt
         import wurtzite as wzt
         local_crystal = dataclasses.replace(
             crystal,
             coordinates=d2h(initial_atoms_local)
         )
-        fig, ax = wzt.visualization.plot_atoms_2d(local_crystal, xlim=(-40, 30), ylim=(-40, 40))
-
-        for d in initial_d_state.ds:
-            if isinstance(d.position, xp.ndarray):
-                d = dataclasses.replace(d, position=d2h(d.position))
-            if isinstance(d.b, xp.ndarray):
-                d = dataclasses.replace(d, b=d2h(d.b))
-
-            wzt.visualization.display_tee_2d(ax, d, scale=0.5)
-        fig.savefig("local.svg")
-        plt.show()
-
-        plt.figure()
-        # # plot atoms and dislocations
+        # Plotting beta.
         npoints = 1000
         x = np.linspace(-40, 30, npoints)
         y = np.linspace(-40, 40, npoints)
@@ -158,13 +147,29 @@ def displace(crystal, dislocations, d_n, n_iters=3, alpha=1.0, skip_np1=False, n
 
         pp = np.column_stack([X.ravel(), Y.ravel()])
         pp = h2d(pp)
-        bb = beta_sigma(points=pp, crystal=crystal, d_state=initial_d_state, exclude_beta={1}, debug=True)
-        bb = bb[:, 0, 0]
-        bb = bb.reshape(X.shape)
-        plt.figure()
-        cs = plt.contourf(X, Y, d2h(xp.log10(np.abs(bb))), levels=50, cmap="jet")
-        plt.colorbar()
-        plt.show()
+        bb = beta_sigma(points=pp, crystal=crystal, d_state=initial_d_state)
+
+        checkpoints = [(0, 0), (0, 1), (1, 0), (1, 1)]
+        titles = [r"$\beta_{xx}$", r"$\beta_{xy}$", r"$\beta_{yx}$", r"$\beta_{yy}$"]
+
+        for checkpoint, title in zip(checkpoints, titles):
+            fig, ax = wzt.visualization.plot_atoms_2d(local_crystal, xlim=(-45, 45), ylim=(-15, 25))
+            ax.set_title(title)
+            bbb = bb[:, checkpoint[0], checkpoint[1]]
+            bbb = bbb.reshape(X.shape)
+            cs = ax.contourf(
+                X, Y, d2h(xp.log10(np.abs(bbb)+1e-9)), levels=50,
+                cmap="jet",
+                zorder=-1000
+            )
+            for d in initial_d_state.ds:
+                if isinstance(d.position, xp.ndarray):
+                    d = dataclasses.replace(d, position=d2h(d.position))
+                if isinstance(d.b, xp.ndarray):
+                    d = dataclasses.replace(d, b=d2h(d.b))
+                wzt.visualization.display_tee_2d(ax, d, scale=0.5)
+            plt.show()
+
 
     for i in range(n_iters):
         if len(d_state.ds) > 1 and not skip_ds:

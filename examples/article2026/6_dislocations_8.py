@@ -100,6 +100,7 @@ dislocations = [
         color="brown"
     )
 ]
+debug_plots = {0, 5}
 
 l = l0
 current_dislocations = []
@@ -113,6 +114,7 @@ for i, d in enumerate(dislocations):
         d_n=d,
         n_iters=n_iters,
         n_points=n_points,
+        plot_local=(i in debug_plots)
     )
     # Displacement.
     u = log.last_u_atoms
