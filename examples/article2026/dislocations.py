@@ -207,8 +207,6 @@ def displace(crystal, dislocations, d_n, n_iters=3, alpha=1.0, skip_np1=False, n
                 new_d = _set_d(d, position=current_p)
                 new_ds.append(new_d)
 
-            print(f"Iteration: {i}: {new_ds}")
-
             # Leave the d_n unmodified.
             new_ds.append(d_state.ds[-1])
             d_state = DislocationsState(ds=new_ds, ds_rt=new_d_rts)
@@ -1082,7 +1080,7 @@ def get_glide_plane(crystal, d_state, dislocation_nr, margin=45):
             exclude_beta={dislocation_nr}
         )).squeeze()
         F_inv = np.eye(2) - betas
-        return np.asarray([F_inv[1, 0] / F_inv[1, 1]])
+        return -np.asarray([F_inv[1, 0] / F_inv[1, 1]])
     position = d_n.position
     if isinstance(position, xp.ndarray):
         position = d2h(position)
@@ -1103,7 +1101,7 @@ def get_glide_plane(crystal, d_state, dislocation_nr, margin=45):
     result = np.zeros((n_points, 3))
     # left side
     result[:, 0] = np.flip(np.squeeze(ode_res.t))
-    result[:, 1] = np.flip(np.squeeze(-ode_res.y))
+    result[:, 1] = np.flip(np.squeeze(ode_res.y))
     return result
 
 
@@ -1238,7 +1236,6 @@ def get_integration_path_via_energy(
         curve=glide_plane, coordinates=c, edges=lattice.bonds, weights=energies,
         direction=direction)
 
-
     # Find the index of the atom closest to the x_dash
     dists = xp.linalg.norm(c - x_dash.reshape(1, -1), axis=1)
     closest_x_dash = xp.argmin(dists)  # index
@@ -1262,6 +1259,7 @@ def get_integration_path_via_energy(
     # include x_o and x_dash
     if not xp.isclose(xp.linalg.norm(x_o.squeeze() - closest_x_o.squeeze()), 0):
         points.append(x_o)
+
     for i in path:
         points.append(c[i])
 
@@ -1302,9 +1300,6 @@ def get_integration_path_via_energy_always_direction(
             idx = np.argmin(x_dist)
             y_closest = glide_plane[idx, 1]
             direction = xp.sign(x_dash.squeeze()[1] - y_closest)
-
-    direction = 1 # ALWAYS DOWN
-    print("ALWAYS UP")
 
     if direction == 0:
         raise ValueError("there should be no point located exactly at y=0")
@@ -1470,28 +1465,24 @@ def filter_lattice_by_curve(curve, coordinates, edges, weights, direction):
             Przefiltrowane punkty
     """
 
-    # Rozbijamy na współrzędne
     Px, Py = coordinates[:, 0], coordinates[:, 1]
     Cx, Cy = curve[:, 0], curve[:, 1]
 
-    # Sortowanie krzywej wg x (wymagane dla interpolacji)
     idx = xp.argsort(Cx)
     Cx_sorted = Cx[idx]
     Cy_sorted = Cy[idx]
 
-    # Interpolacja y-krzywej w położeniach Px
     Px = xp.ascontiguousarray(Px)
     Cx_sorted = xp.ascontiguousarray(Cx_sorted)
     Cy_sorted = xp.ascontiguousarray(Cy_sorted)
     curve_y = xp.interp(Px, Cx_sorted, Cy_sorted)
 
-    # Maska wybierająca punkty
     if direction == -1:
         mask = Py < curve_y
     elif direction == 1:
         mask = Py > curve_y
     else:
-        raise ValueError("Parametr 'keep' musi być 'below' albo 'above'.")
+        raise ValueError(f"Invalid direction: {direction}")
 
     weights = weights.copy()
     edges = h2d(edges.copy())
@@ -1500,8 +1491,9 @@ def filter_lattice_by_curve(curve, coordinates, edges, weights, direction):
     weights[xp.logical_not(mask)] = np.inf
     coordinates[np.logical_not(mask)] = h2d([xp.inf, xp.inf])
 
+    # Indices of atoms that should be kept connected.
     mask_idx = h2d(list(set(np.argwhere(mask).squeeze().tolist())))
-    mask = xp.isin(edges[:, 0], mask_idx) | xp.isin(edges[:, 1], mask_idx)
+    # We keep only bonds where all atoms are available.
+    mask = xp.isin(edges[:, 0], mask_idx) & xp.isin(edges[:, 1], mask_idx)
     edges = edges[mask]
-    # Unreachable
     return coordinates, weights, edges

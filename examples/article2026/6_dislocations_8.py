@@ -4,6 +4,9 @@ from dislocations import *
 import wurtzite as wzt
 import math
 from pathlib import Path
+import numpy as np
+
+np.seterr(invalid="raise")
 
 # INITIAL CONFIGURATION CONFIGURATION.
 l0 = wzt.generate.create_lattice(
@@ -82,21 +85,20 @@ dislocations = [
         plane=(0, 0, 1),
         color="brown"
     ),
-    # wzt.model.DislocationDef(
-    #     label="$d_5$",
-    #     b=[1, 1, 0],
-    #     position=[18.57, 18.92, 0] + offset_0,
-    #     plane=(0, 0, 1),
-    #     color="brown"
-    # ),
-    # wzt.model.DislocationDef(
-    #     label="$d_6$",
-    #     b=[0, -1, 0],
-    #     position=[14.01, 4.74, 0] + offset_0,
-    #     plane=(0, 0, 1),
-    #     color="brown"
-    # )
-
+    wzt.model.DislocationDef(
+        label="$d_5$",
+        b=[1, 1, 0],
+        position=[18.57, 18.92, 0] + offset_0,
+        plane=(0, 0, 1),
+        color="brown"
+    ),
+    wzt.model.DislocationDef(
+        label="$d_6$",
+        b=[0, -1, 0],
+        position=[14.01, 4.74, 0] + offset_0,
+        plane=(0, 0, 1),
+        color="brown"
+    )
 ]
 
 l = l0
@@ -119,7 +121,7 @@ for i, d in enumerate(dislocations):
     current_dislocations = last_d_state.ds
     # Translate current lattice according to the displace.
     l = l.translate(u)
-    # Upate bonds between atoms.
+    # Update bonds between atoms.
     l = wzt.generate.update_bonds(l, tolerance=0.55)
     # Draw atoms.
     fig, ax = wzt.visualization.plot_atoms_2d(l, xlim=xlim, ylim=ylim, figsize=figsize)
