@@ -33,7 +33,7 @@ try:
     from vtkmodules.vtkCommonCore import vtkPoints
     from vtkmodules.vtkCommonDataModel import vtkPolyData
 except Exception as e:
-    print(f"Couldnt find VTK package ('{e}), skipping it...")
+    print(f"Couldnt find VTK package ('{e}'), skipping it...")
 
 # Copied from openbabel implementation
 # i-th row: r, g, b for atom with i+1 number
