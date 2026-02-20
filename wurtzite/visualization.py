@@ -10,12 +10,10 @@ import matplotlib
 import matplotlib.pyplot as plt
 import matplotlib.animation
 import matplotlib.lines
-import panel as pn
-import vtk
 import numpy as np
 
-from vtkmodules.vtkCommonCore import vtkPoints
-from vtkmodules.vtkCommonDataModel import vtkPolyData
+
+
 
 import wurtzite.model
 from wurtzite.model import Crystal
@@ -23,7 +21,19 @@ from pathlib import Path
 import os
 import wurtzite.dislocations
 
-pn.extension("vtk")
+
+try:
+    import panel as pn
+    pn.extension("vtk")
+except Exception as e:
+    print(f"Couldn't find Panel package: ('{e}'), skipping it...")
+
+try:
+    import vtk
+    from vtkmodules.vtkCommonCore import vtkPoints
+    from vtkmodules.vtkCommonDataModel import vtkPolyData
+except Exception as e:
+    print(f"Couldnt find VTK package ('{e}), skipping it...")
 
 # Copied from openbabel implementation
 # i-th row: r, g, b for atom with i+1 number

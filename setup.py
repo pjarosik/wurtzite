@@ -24,8 +24,6 @@ setuptools.setup(
         "numpy<2.0.0",
         "scipy==1.17.0",
         "matplotlib",
-        "panel==1.2.0",  # Visualization
-        "vtk==9.2.6"
     ],
     python_requires='>=3.7'
 )
