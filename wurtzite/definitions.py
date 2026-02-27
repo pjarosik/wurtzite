@@ -63,8 +63,7 @@ class UnitCellDef:
 
         projection_matrix = np.array([
             [a, b * cos_gamma, c * cos_beta],
-            [0, b * sin_gamma,
-             c * (cos_alpha - cos_beta * cos_gamma) / sin_gamma],
+            [0, b * sin_gamma, c * (cos_alpha - cos_beta * cos_gamma) / sin_gamma],
             [0, 0, c * math.sqrt(1.0 + 2.0 * cos_alpha * cos_beta * cos_gamma - cos_alpha ** 2 - cos_beta ** 2 - cos_gamma ** 2) / sin_gamma]
         ])
         return projection_matrix

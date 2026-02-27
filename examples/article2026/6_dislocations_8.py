@@ -1,3 +1,4 @@
+import pickle
 from datetime import datetime
 
 from dislocations import *
@@ -5,6 +6,7 @@ import wurtzite as wzt
 import math
 from pathlib import Path
 import numpy as np
+import params
 
 np.seterr(invalid="raise")
 
@@ -102,39 +104,76 @@ dislocations = [
 ]
 debug_plots = {0, 5}
 
-l = l0
-current_dislocations = []
 
-for i, d in enumerate(dislocations):
-    print(f"------------------------------------------ DISLOCATION: {i}")
-    # Calculate displacement + auxiliary information
-    log = displace(
-        crystal=l,
-        dislocations=current_dislocations,
-        d_n=d,
-        n_iters=n_iters,
-        n_points=n_points,
-        plot_local=(i in debug_plots)
-    )
-    # Displacement.
-    u = log.last_u_atoms
-    # Log of the last state (where dislocations are located, glide planes, etc.)
-    last_d_state = log.last_d_state
-    current_dislocations = last_d_state.ds
-    # Translate current lattice according to the displace.
-    l = l.translate(u)
-    # Update bonds between atoms.
-    l = wzt.generate.update_bonds(l, tolerance=0.55)
-    # Draw atoms.
-    fig, ax = wzt.visualization.plot_atoms_2d(l, xlim=xlim, ylim=ylim, figsize=figsize)
-    # Draw tees.
-    for d in current_dislocations:
-        wzt.visualization.display_tee_2d(ax, d, scale=0.5)
+def main(params):
+    current_state = params.get("init_state")
+    start_dislocation = params.get("start_dislocation")
+    is_save_state = not params.get("skip_save_state")
 
-    # Save to the output file
-    filename = f"{filename_prefix}_dislocation_{i}.svg"
-    fig.savefig(filename)
-    # Show image, if enabled.
-    if show_img:
-        plt.show()
-    print(f"Image saved to {filename}")
+    if not current_state:
+        # We start from the perfect configuration
+        l = l0  # Current lattice
+        current_dislocations = []  # Dislocations already applied
+        n_ready_dislocations = 0
+    else:
+        # Start from the state read from the .pkl file
+        l = current_state["l"][start_dislocation]  # Current lattice
+        # Dislocations already applied
+        current_dislocations = current_state["dislocations"][start_dislocation]
+        # Number of dislocations already applied. For example, if already
+        n_ready_dislocations = len(current_dislocations)
+
+    ls = []
+    all_dislocation_states = []
+
+    for i in range(n_ready_dislocations, len(dislocations)):
+        d = dislocations[i]
+        print(f"------------------------------------------ DISLOCATION: {i+1}")
+        # Calculate displacement + auxiliary information
+        log = displace(
+            crystal=l,
+            dislocations=current_dislocations,
+            d_n=d,
+            n_iters=n_iters,
+            n_points=n_points,
+            plot_local=(i in debug_plots)
+        )
+        # Displacement.
+        u = log.last_u_atoms
+        # Log of the last state
+        # (where dislocations are located, glide planes, etc.)
+        last_d_state = log.last_d_state
+        current_dislocations = last_d_state.ds
+        # Translate current lattice according to the displace.
+        l = l.translate(u)
+        # Update bonds between atoms.
+        l = wzt.generate.update_bonds(l, tolerance=0.55)
+        # Draw atoms.
+        fig, ax = wzt.visualization.plot_atoms_2d(l, xlim=xlim, ylim=ylim, figsize=figsize)
+        # Draw tees.
+        for d in current_dislocations:
+            wzt.visualization.display_tee_2d(ax, d, scale=0.5)
+
+        # Save to the image file (.svg)
+        filename = f"{filename_prefix}_dislocation_{i}.svg"
+        fig.savefig(filename)
+        # Show image, if enabled.
+        if show_img:
+            plt.show()
+        print(f"Image saved to {filename}")
+
+        ls.append(l)
+        all_dislocation_states.append(current_dislocations)
+
+    if is_save_state:
+        with open(f"state_{timestamp}.pkl", "wb") as f:
+            state = {
+                "l": ls,
+                "dislocations": all_dislocation_states
+            }
+            pickle.dump(state, f)
+
+
+if __name__ == "__main__":
+    default_params = params.read_default_params()
+    main(default_params)

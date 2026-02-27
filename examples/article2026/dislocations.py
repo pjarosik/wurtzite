@@ -152,8 +152,13 @@ def displace(crystal, dislocations, d_n, n_iters=3, alpha=1.0, skip_np1=False, n
         checkpoints = [(0, 0), (0, 1), (1, 0), (1, 1)]
         titles = [r"$\beta_{xx}$", r"$\beta_{xy}$", r"$\beta_{yx}$", r"$\beta_{yy}$"]
 
+        fig, axes = plt.subplots(2, 2, constrained_layout=True)
+
         for checkpoint, title in zip(checkpoints, titles):
-            fig, ax = wzt.visualization.plot_atoms_2d(local_crystal, xlim=(-45, 45), ylim=(-15, 25))
+            ax = axes[checkpoint[0], checkpoint[1]]
+            wzt.visualization.plot_atoms_2d(
+                local_crystal, xlim=(-45, 45), ylim=(-15, 25), fig=fig, ax=ax
+            )
             ax.set_title(title)
             bbb = bb[:, checkpoint[0], checkpoint[1]]
             bbb = bbb.reshape(X.shape)
@@ -162,14 +167,27 @@ def displace(crystal, dislocations, d_n, n_iters=3, alpha=1.0, skip_np1=False, n
                 cmap="jet",
                 zorder=-1000
             )
+            fig.colorbar(cs, ax=ax, orientation="vertical")
             for d in initial_d_state.ds:
                 if isinstance(d.position, xp.ndarray):
                     d = dataclasses.replace(d, position=d2h(d.position))
                 if isinstance(d.b, xp.ndarray):
                     d = dataclasses.replace(d, b=d2h(d.b))
                 wzt.visualization.display_tee_2d(ax, d, scale=0.5)
-            plt.show()
 
+            def make_format():
+                def format_coord(x_mouse, y_mouse):
+                    col = np.searchsorted(x, x_mouse) - 1
+                    row = np.searchsorted(y, y_mouse) - 1
+                    if 0 <= col < len(x) and 0 <= row < len(y):
+                        z = bbb[row, col]
+                        return f"x={x_mouse:.2f}, y={y_mouse:.2f}, z={z:.3f}"
+                    else:
+                        return f"x={x_mouse:.2f}, y={y_mouse:.2f}"
+                return format_coord
+
+            ax.format_coord = make_format()
+        plt.show()
 
     for i in range(n_iters):
         if len(d_state.ds) > 1 and not skip_ds:
