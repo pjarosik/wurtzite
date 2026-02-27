@@ -18,7 +18,7 @@ l0 = wzt.generate.create_lattice(
 
 # PARAMETERS.
 # Number of integration points.
-n_points = 300
+n_points = 1000
 # Number of iterations
 n_iters = 1
 

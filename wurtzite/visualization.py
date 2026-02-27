@@ -596,7 +596,7 @@ def plot_atoms_2d(lattice, offset=5, figsize=None, xlim=None, ylim=None, xlabel=
     with the given `offset` value. 
 
     :param lattice: the lattice to display
-    :param offset: the offset to apply to the figure size, relative to the ($\AA$ units). 
+    :param offset: the offset to apply to the figure size, relative to the ($\\AA$ units). 
     :return: matplotlib figure and axis with drawn atoms 
     """
     if highlighted_atoms is None:
@@ -643,8 +643,8 @@ def plot_atoms_2d(lattice, offset=5, figsize=None, xlim=None, ylim=None, xlabel=
         # 1A == 0.2 inch
         figsize = (xw*0.2, yw*0.2)
     fig.set_size_inches(*figsize)
-    ax.set_xlabel("OX ($\AA$)")
-    ax.set_ylabel("OY ($\AA$)")
+    ax.set_xlabel(r"OX ($\AA$)")
+    ax.set_ylabel(r"OY ($\AA$)")
 
     if label_indices:
         d = 0.1
@@ -655,7 +655,7 @@ def plot_atoms_2d(lattice, offset=5, figsize=None, xlim=None, ylim=None, xlabel=
     return fig, ax
 
 
-def plot_displacement(lattice, u, xlabel="OX ($\AA$)", ylabel="OY ($\AA$)", title="Dislocation field (u), OXY", dislocation_core_position=None):
+def plot_displacement(lattice, u, xlabel=r"OX ($\AA$)", ylabel=r"OY ($\AA$)", title="Dislocation field (u), OXY", dislocation_core_position=None):
     fig, ax = plt.subplots()
     ax.set_xlabel(xlabel)
     ax.set_ylabel(ylabel)
