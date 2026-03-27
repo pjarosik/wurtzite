@@ -915,6 +915,20 @@ def calculate_rotation_matrix_for_vector(v):
     """
     Calculates matrix to the local coordinate system according to the
     given burgers vector v.
+
+    Wynikowa macierz to:
+
+    # [v, orto_v, 0]
+    # [v, orto_v, 0]
+    # [v, orto_v, 1]
+
+    gdzie:
+     - v to przekazany w parametrach wektor (wektor Burgersa),
+     - orto_v to wektor v obrócony o 90 stopni:
+
+     orto_v = [[0, -1]  * v
+               [1,  0]]
+
     """
     # TODO ignoring OZ
     v = h2d(v)[:2]
@@ -923,13 +937,7 @@ def calculate_rotation_matrix_for_vector(v):
     ba_orto = xp.array([[0, -1],
                         [1, 0]]).dot(ba)
     ba_z = h2d([0, 0, 1])
-
-    # R_i = 
-
-    # [b, orto_b, 0]  
-    # [b, orto_b, 0]
-    # [b, orto_b, 1]
-
+    # R_i =
     rotmatrix = xp.eye(2)
     rotmatrix[:2, 0] = ba
     rotmatrix[:2, 1] = ba_orto
@@ -939,6 +947,12 @@ def calculate_rotation_matrix_for_vector(v):
 def beta_sigma(points: xp.ndarray, crystal, d_state: DislocationsState,
                exclude_beta: Optional[Set] = None,
                return_beta: Optional[int] = None, return_all_beta: bool = False, debug=False):
+
+    # Points oraz d_state (opis stanu dyslokacji): punkty są w układzie współrzędnych:
+    # - zaczepionym w wstawianej dyslokacji (ostatnia dysloakacja z d_state.ds)
+    # - oś OX jest styczna do wektora burgersa ostatniej dyslokacji, PRZED OBROTEM DYSLOKACJI.
+
+
     if exclude_beta is None:
         exclude_beta = {}
     n_points, dims = points.shape
@@ -946,19 +960,24 @@ def beta_sigma(points: xp.ndarray, crystal, d_state: DislocationsState,
 
     returned_beta = None
     betas = []
+
     for i, (d, _) in enumerate(zip(d_state.ds, d_state.ds_rt)):
+
+        # Dla każdej dyslokacji `d`:
+
         if i not in exclude_beta:
-            # Oblicz macierz rotacji do ukladu lokalnego
+            # Oblicz macierz obrotu z obecnego układu punktów / dyslokacji
+            # (patrz pierwszy komentarz tej funkcji) do układu, gdzie
+            # OX jest równoległa z wektorem Burgersa
             rt = calculate_rotation_matrix_for_vector(v=d.b)
-            if debug:
-                print(i)
-                print(rt)
+            # Policz beta.
             beta = beta_rotated(
                 points=points,
                 crystal=crystal,
                 d=d,
                 rotation_matrix=rt,
             )
+            # Dodaj betę do wynikowej sumy.
             result += beta
             if return_beta == i:
                 returned_beta = beta
@@ -972,6 +991,23 @@ def beta_sigma(points: xp.ndarray, crystal, d_state: DislocationsState,
 
 
 def beta_rotated(crystal, d, points, rotation_matrix, dis_tolerance=DIS_TOLERANCE):
+    """
+    Oblicza macierz b dla punktów `points`, dla dyslokacji d (używamy jej położenia)
+    oraz dla macierzy obrotu do danej dyslokacji `rotation_matrix`.
+
+    Polożenie dyslokacji: `d.position`, skalar
+    Wektor b dyslokacji: `d.b`, krawędziowa: be, śrubowa: bz, skalary
+    Obecny obrót dyslokacji: `rotation_matrix`: macierz o wymiarach (3, 3)
+    Punkty, dla których liczymy b: `points`, macierz o wymiarach (liczba punktów, 3)
+
+    wykonywane instrukcje:
+
+    points := points - d.position
+    points = (rotation_matrix.T * points.T).T
+    b = beta(points, be, bz)
+    b = rotation_matrix * b * rotation_matrix.T
+    """
+
     if rotation_matrix is None:
         return xp.zeros((points.shape[0], 2, 2))
 
