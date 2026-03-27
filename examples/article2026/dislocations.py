@@ -84,8 +84,8 @@ def postprocess_dislocations(d_state, miller):
 
 
 def displace(crystal, dislocations, d_n, n_iters=3, alpha=1.0, skip_np1=False, n_points=30000,
-             glide_plane_margin=80, points=(), debug=False, only_inv=False, skip_ds=False, skip_atoms=False,
-             same_excluded=False, only_noninv=False, plot_local=False, custom_paths=dict()):
+             glide_plane_margin=35, points=(), debug=False, only_inv=False, skip_ds=False, skip_atoms=False,
+             same_excluded=False, only_noninv=False, plot_local_planes=False, plot_local=False, custom_paths=dict()):
     """
     Displaces the given crystal lattice according to the displacements
     caused by the dislocation d.
@@ -109,7 +109,7 @@ def displace(crystal, dislocations, d_n, n_iters=3, alpha=1.0, skip_np1=False, n
     if points:
         points_local = [miller.preprocess(h2d(p)) for p in points]
 
-    # ALl entities in the d_state is assumed to be located in the coordinate
+    # All entities in the d_state is assumed to be located in the coordinate
     # system centered in d_n.
     d_state = DislocationsState(
         ds=all_dislocations_local,
@@ -130,65 +130,7 @@ def displace(crystal, dislocations, d_n, n_iters=3, alpha=1.0, skip_np1=False, n
 
     initial_d_state = d_state
 
-    if plot_local:
-        # DEBUG PLOTTING
-
-        import matplotlib.pyplot as plt
-        import wurtzite as wzt
-        local_crystal = dataclasses.replace(
-            crystal,
-            coordinates=d2h(initial_atoms_local)
-        )
-        # Plotting beta.
-        npoints = 1000
-        x = np.linspace(-40, 30, npoints)
-        y = np.linspace(-40, 40, npoints)
-        X, Y = np.meshgrid(x, y)
-
-        pp = np.column_stack([X.ravel(), Y.ravel()])
-        pp = h2d(pp)
-        bb = beta_sigma(points=pp, crystal=crystal, d_state=initial_d_state)
-
-        checkpoints = [(0, 0), (0, 1), (1, 0), (1, 1)]
-        titles = [r"$\beta_{xx}$", r"$\beta_{xy}$", r"$\beta_{yx}$", r"$\beta_{yy}$"]
-
-        fig, axes = plt.subplots(2, 2, constrained_layout=True)
-
-        for checkpoint, title in zip(checkpoints, titles):
-            ax = axes[checkpoint[0], checkpoint[1]]
-            wzt.visualization.plot_atoms_2d(
-                local_crystal, xlim=(-45, 45), ylim=(-15, 25), fig=fig, ax=ax
-            )
-            ax.set_title(title)
-            bbb = bb[:, checkpoint[0], checkpoint[1]]
-            bbb = bbb.reshape(X.shape)
-            cs = ax.contourf(
-                X, Y, d2h(xp.log10(np.abs(bbb)+1e-9)), levels=50,
-                cmap="jet",
-                zorder=-1000
-            )
-            fig.colorbar(cs, ax=ax, orientation="vertical")
-            for d in initial_d_state.ds:
-                if isinstance(d.position, xp.ndarray):
-                    d = dataclasses.replace(d, position=d2h(d.position))
-                if isinstance(d.b, xp.ndarray):
-                    d = dataclasses.replace(d, b=d2h(d.b))
-                wzt.visualization.display_tee_2d(ax, d, scale=0.5)
-
-            def make_format():
-                def format_coord(x_mouse, y_mouse):
-                    col = np.searchsorted(x, x_mouse) - 1
-                    row = np.searchsorted(y, y_mouse) - 1
-                    if 0 <= col < len(x) and 0 <= row < len(y):
-                        z = bbb[row, col]
-                        return f"x={x_mouse:.2f}, y={y_mouse:.2f}, z={z:.3f}"
-                    else:
-                        return f"x={x_mouse:.2f}, y={y_mouse:.2f}"
-                return format_coord
-
-            ax.format_coord = make_format()
-        plt.show()
-
+    
     for i in range(n_iters):
         if len(d_state.ds) > 1 and not skip_ds:
             # More than one dislocation -- we need to update the rotation
@@ -240,8 +182,91 @@ def displace(crystal, dislocations, d_n, n_iters=3, alpha=1.0, skip_np1=False, n
     glide_planes = []
     for i in range(len(d_state.ds)):
         glide_plane = find_glide_plane(
-            crystal, initial_d_state, margin=glide_plane_margin, dislocation_nr=i)
+            crystal, initial_d_state, margin=glide_plane_margin, dislocation_nr=i, debug=True)
         glide_planes.append(glide_plane)
+
+    if plot_local:
+        # DEBUG PLOTTING
+
+        import matplotlib.pyplot as plt
+        import wurtzite as wzt
+        local_crystal = dataclasses.replace(
+            crystal,
+            coordinates=d2h(initial_atoms_local)
+        )
+        # Plotting beta.
+        npoints = 1000
+        x = np.linspace(-40, 30, npoints)
+        y = np.linspace(-40, 40, npoints)
+        X, Y = np.meshgrid(x, y)
+
+        pp = np.column_stack([X.ravel(), Y.ravel()])
+        pp = h2d(pp)
+        _, bb = beta_sigma(points=pp, crystal=crystal, d_state=initial_d_state, return_beta=0)
+
+        checkpoints = [(0, 0), (0, 1), (1, 0), (1, 1)]
+        titles = [r"$\beta_{1, " + f"{c0+1}{c1+1}" + "}$" for c0, c1 in checkpoints]
+
+        fig, axes = plt.subplots(2, 2, constrained_layout=True)
+
+        for checkpoint, title in zip(checkpoints, titles):
+            ax = axes[checkpoint[0], checkpoint[1]]
+            wzt.visualization.plot_atoms_2d(
+                local_crystal, xlim=(-45, 45), ylim=(-15, 25), fig=fig, ax=ax
+            )
+            ax.set_title(title)
+            bbb = bb[:, checkpoint[0], checkpoint[1]]
+            bbb = bbb.reshape(X.shape)
+            cs = ax.contourf(
+                X, Y, d2h(xp.log10(np.abs(bbb)+1e-9)), levels=50,
+                cmap="jet",
+                zorder=-1000
+            )
+            fig.colorbar(cs, ax=ax, orientation="vertical")
+            for d in initial_d_state.ds:
+                if isinstance(d.position, xp.ndarray):
+                    d = dataclasses.replace(d, position=d2h(d.position))
+                if isinstance(d.b, xp.ndarray):
+                    d = dataclasses.replace(d, b=d2h(d.b))
+                wzt.visualization.display_tee_2d(ax, d, scale=0.5)
+
+            def make_format():
+                def format_coord(x_mouse, y_mouse):
+                    col = np.searchsorted(x, x_mouse) - 1
+                    row = np.searchsorted(y, y_mouse) - 1
+                    if 0 <= col < len(x) and 0 <= row < len(y):
+                        z = bbb[row, col]
+                        return f"x={x_mouse:.2f}, y={y_mouse:.2f}, z={z:.3f}"
+                    else:
+                        return f"x={x_mouse:.2f}, y={y_mouse:.2f}"
+                return format_coord
+
+            ax.format_coord = make_format()
+        plt.show()
+
+    if plot_local_planes:
+        # DEBUG PLOTTING
+        import matplotlib.pyplot as plt
+        import wurtzite as wzt
+        local_crystal = dataclasses.replace(
+            crystal,
+            coordinates=d2h(initial_atoms_local)
+        )
+        fig, ax = plt.subplots(1, 1, constrained_layout=True)
+
+        wzt.visualization.plot_atoms_2d(
+                local_crystal, xlim=(-45, 45), ylim=(-15, 25), fig=fig, ax=ax
+            )
+        for d in initial_d_state.ds:
+            if isinstance(d.position, xp.ndarray):
+                d = dataclasses.replace(d, position=d2h(d.position))
+            if isinstance(d.b, xp.ndarray):
+                d = dataclasses.replace(d, b=d2h(d.b))
+            wzt.visualization.display_tee_2d(ax, d, scale=0.5)
+
+        ax.plot(glide_planes[-1][:, 0], glide_planes[-1][:, 1])
+        plt.show()
+
 
 
     # Update atom locations.
@@ -913,13 +938,14 @@ def calculate_rotation_matrix_for_vector(v):
 
 def beta_sigma(points: xp.ndarray, crystal, d_state: DislocationsState,
                exclude_beta: Optional[Set] = None,
-               return_beta: Optional[int] = None, debug=False):
+               return_beta: Optional[int] = None, return_all_beta: bool = False, debug=False):
     if exclude_beta is None:
         exclude_beta = {}
     n_points, dims = points.shape
     result = xp.zeros((n_points, 2, 2))
 
     returned_beta = None
+    betas = []
     for i, (d, _) in enumerate(zip(d_state.ds, d_state.ds_rt)):
         if i not in exclude_beta:
             # Oblicz macierz rotacji do ukladu lokalnego
@@ -936,8 +962,11 @@ def beta_sigma(points: xp.ndarray, crystal, d_state: DislocationsState,
             result += beta
             if return_beta == i:
                 returned_beta = beta
+            betas.append(beta)
     if returned_beta is not None:
         return result, returned_beta
+    elif return_all_beta:
+        return result, betas
     else:
         return result
 
@@ -1091,18 +1120,31 @@ def _set_d(dislocation, **kwargs):
 
 
 ## Glide plane
-def get_glide_plane(crystal, d_state, dislocation_nr, margin=45):
+def get_glide_plane(crystal, d_state, dislocation_nr, margin=45, debug=False):
     d_n = d_state.ds[dislocation_nr]
     # NOTE: y0 must be determined for the system located in d2
+    f21 = []
+    f22 = []
+    ts = []
+    bs21 = []
+    bs22 = []
     def func(t, y):
         point = np.asarray([t, y.item()]).reshape(1, -1)
-        betas = d2h(beta_sigma(
+        betas, all_betas = beta_sigma(
             points=point,
             crystal=crystal,
             d_state=d_state,
-            exclude_beta={dislocation_nr}
-        )).squeeze()
+            exclude_beta={dislocation_nr},
+            return_all_beta=True,
+        )
+        betas = d2h(betas).squeeze()
         F_inv = np.eye(2) - betas
+        ts.append(t)
+        f21.append(betas[1, 0])
+        f22.append(betas[1, 1])
+        bs21.append(tuple([b.squeeze()[1, 0] for b in all_betas]))
+        bs22.append(tuple([b.squeeze()[1, 1] for b in all_betas]))
+
         return -np.asarray([F_inv[1, 0] / F_inv[1, 1]])
     position = d_n.position
     if isinstance(position, xp.ndarray):
@@ -1118,7 +1160,7 @@ def get_glide_plane(crystal, d_state, dislocation_nr, margin=45):
         func,
         t_span=t_span, y0=[y0],
         method="BDF",
-        rtol=1e-8, atol=1e-10, max_step=0.1
+        rtol=1e-8, atol=1e-10, max_step=1e-1
     )
     n_points = len(ode_res.t)
     result = np.zeros((n_points, 3))
@@ -1128,10 +1170,10 @@ def get_glide_plane(crystal, d_state, dislocation_nr, margin=45):
     return result
 
 
-def find_glide_plane(crystal, d_state, dislocation_nr, margin=45):
+def find_glide_plane(crystal, d_state, dislocation_nr, margin=45, debug=False):
     return h2d(get_glide_plane(crystal=crystal, d_state=d_state,
                                dislocation_nr=dislocation_nr,
-                               margin=margin))
+                               margin=margin, debug=debug))
 
 
 def calculate_energies(l, local_coordinates, d_state):

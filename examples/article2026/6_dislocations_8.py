@@ -34,7 +34,7 @@ xlim = (-25, 60)
 ylim = (-5, 45)
 # Figure size [inches]
 figsize = (15, 7.5)
-# Glide plane line width [pints]
+# Glide plane line width [points]
 linewidth = 2.5
 # Glide plane length (how far should be the glide plane calcualted).
 gp_offset = 30
@@ -98,11 +98,11 @@ dislocations = [
         label="$d_6$",
         b=[0, -1, 0],
         position=[14.01, 4.74, 0] + offset_0,
-        plane=(0, 0, 1),
+        plane=(0, 0, -1),
         color="brown"
     )
 ]
-debug_plots = {0, 5}
+debug_plots = {5}
 
 
 def main(params):
@@ -136,14 +136,28 @@ def main(params):
             d_n=d,
             n_iters=n_iters,
             n_points=n_points,
-            plot_local=(i in debug_plots)
+            plot_local=(i in debug_plots),
+            plot_local_planes=(i in debug_plots)
         )
+        # print("BEFORE")
+        # fig, ax = wzt.visualization.plot_atoms_2d(l, xlim=xlim, ylim=ylim, figsize=figsize)
+        # # Draw tees.
+        # for d in current_dislocations:
+        #     wzt.visualization.display_tee_2d(ax, d, scale=0.5)
+
+        # for p in [log.last_glide_planes[-1]]:
+        #     ax.plot(p[:, 0], p[:, 1])
+        # plt.show()
+
+
         # Displacement.
         u = log.last_u_atoms
         # Log of the last state
         # (where dislocations are located, glide planes, etc.)
         last_d_state = log.last_d_state
         current_dislocations = last_d_state.ds
+
+        print("AFTER")
         # Translate current lattice according to the displace.
         l = l.translate(u)
         # Update bonds between atoms.
@@ -153,6 +167,9 @@ def main(params):
         # Draw tees.
         for d in current_dislocations:
             wzt.visualization.display_tee_2d(ax, d, scale=0.5)
+
+        for p in [log.last_glide_planes[-1]]:
+            ax.plot(p[:, 0], p[:, 1])
 
         # Save to the image file (.svg)
         filename = f"{filename_prefix}_dislocation_{i}.svg"
