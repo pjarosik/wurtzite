@@ -98,7 +98,7 @@ dislocations = [
         label="$d_6$",
         b=[0, -1, 0],
         position=[14.01, 4.74, 0] + offset_0,
-        plane=(0, 0, 1),
+        plane=(0, 0, -1),
         color="brown"
     )
 ]
@@ -137,7 +137,7 @@ def main(params):
             n_iters=n_iters,
             n_points=n_points,
             plot_local=(i in debug_plots),
-            plot_local_planes=(i in debug_plots),
+            plot_local_planes=(i in debug_plots)
         )
         # Displacement.
         u = log.last_u_atoms

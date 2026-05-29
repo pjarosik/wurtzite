@@ -202,7 +202,7 @@ def displace(crystal, dislocations, d_n, n_iters=3, alpha=1.0, skip_np1=False, n
 
         pp = np.column_stack([X.ravel(), Y.ravel()])
         pp = h2d(pp)
-        _, bb = beta_sigma(points=pp, crystal=crystal, d_state=initial_d_state, return_beta=0)
+        bb = beta_sigma(points=pp, crystal=crystal, d_state=current_d_state)
 
         checkpoints = [(0, 0), (0, 1), (1, 0), (1, 1)]
         titles = [r"$\beta_{1, " + f"{c0+1}{c1+1}" + "}$" for c0, c1 in checkpoints]
@@ -951,12 +951,13 @@ def beta_sigma(points: xp.ndarray, crystal, d_state: DislocationsState,
     # Points oraz d_state (opis stanu dyslokacji): punkty są w układzie współrzędnych:
     # - zaczepionym w wstawianej dyslokacji (ostatnia dysloakacja z d_state.ds)
     # - oś OX jest styczna do wektora burgersa ostatniej dyslokacji, PRZED OBROTEM DYSLOKACJI.
-
-
     if exclude_beta is None:
         exclude_beta = {}
     n_points, dims = points.shape
-    result = xp.zeros((n_points, 2, 2))
+    result = broadcast_eye(2, n_points)
+
+    if len(d_state.ds) == 1 and exclude_beta == {0}:
+        result = xp.zeros((n_points, 2, 2))
 
     returned_beta = None
     betas = []
@@ -978,7 +979,8 @@ def beta_sigma(points: xp.ndarray, crystal, d_state: DislocationsState,
                 rotation_matrix=rt,
             )
             # Dodaj betę do wynikowej sumy.
-            result += beta
+            # result += beta
+            result = result @ beta
             if return_beta == i:
                 returned_beta = beta
             betas.append(beta)
