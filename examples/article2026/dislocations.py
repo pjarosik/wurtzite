@@ -98,7 +98,12 @@ def displace(crystal, dislocations, d_n, n_iters=3, alpha=1.0, skip_np1=False, n
     miller = MillerIndices(crystal=crystal, dislocation=d_n)
     # (n atoms, 3)
     # - The introduced dislocation (move to the (0, 0, 0))
-    initial_dn_local = dataclasses.replace(d_n, position=[0.0, 0, 0], b=[1.0, 0.0, 0.0])
+    # b in the local frame is Cartesian and lies along local-x by construction
+    # of rt (mxsxm is the in-plane direction of d_n's cartesian b).
+    cart_b_dn = crystal.cell.to_cartesian_indices(np.asarray(d_n.b))
+    be_dn = float(np.sqrt(cart_b_dn[0] ** 2 + cart_b_dn[1] ** 2))
+    bz_dn = float(cart_b_dn[2])
+    initial_dn_local = dataclasses.replace(d_n, position=[0.0, 0, 0], b=[be_dn, 0.0, bz_dn])
     # - Other dislocations
     initial_ds_local = [miller.preprocess_dislocation(d) for d in dislocations]
     # - Atoms

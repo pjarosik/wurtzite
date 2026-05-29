@@ -35,7 +35,7 @@ def line_integral(path, vals):
 class MillerIndices:
 
     def __init__(self, crystal, dislocation):
-        cell = crystal.cell
+        self.cell = crystal.cell
         position = xp.asarray(dislocation.position)
         burgers_vector = xp.asarray(dislocation.b)
         plane = xp.asarray(dislocation.plane)
@@ -43,7 +43,7 @@ class MillerIndices:
         self.rt = get_rigid_rotation_tensor_miller(
             burgers_vector=burgers_vector,
             plane=plane,
-            cell=cell
+            cell=self.cell
         )
         self.rt_inv = xp.transpose(self.rt)
         self.cd = self.rt.dot(position).squeeze()  # (3, )
@@ -58,7 +58,12 @@ class MillerIndices:
 
     def preprocess_dislocation(self, d):
         new_position = self.preprocess(xp.asarray(d.position))
-        new_b = self.preprocess_vector(xp.asarray(d.b))
+        # b is stored in Miller indices in the user-facing representation;
+        # convert to Cartesian first, then rotate into the local frame.
+        # Within the local frame we keep b in Cartesian so that get_be_bz
+        # and rotate_dislocation operate on physically meaningful magnitudes.
+        cart_b = self.cell.to_cartesian_indices(d2h(xp.asarray(d.b)))
+        new_b = self.rt.dot(h2d(cart_b).T).T
         return dataclasses.replace(
             d,
             position=new_position.squeeze(),
@@ -76,14 +81,19 @@ class MillerIndices:
         return self.rt_inv.dot(x.T).T
 
     def postprocess_dislocation(self, dislocation):
-        new_b = self.postprocess(u=xp.asarray(dislocation.b).reshape(1, -1))
+        # b in the local frame is Cartesian; rotate back to global Cartesian,
+        # then convert to Miller indices for the user-facing representation.
+        b_local_cart = xp.asarray(dislocation.b).reshape(1, -1)
+        b_global_cart = self.postprocess(b_local_cart)
+        cartesian_to_miller = self.cell.cartesian_to_miller
+        new_b = cartesian_to_miller.dot(d2h(b_global_cart).T).T
         new_position = self.postprocess_points(
             x=xp.asarray(dislocation.position).reshape(1, -1)
         )
         return dataclasses.replace(
             dislocation,
             position=d2h(new_position).squeeze(),
-            b=d2h(new_b).squeeze()
+            b=new_b.squeeze()
         )
 
 
@@ -92,12 +102,13 @@ def broadcast_eye(n, nrepeats):
 
 
 def get_be_bz(cell, burgers_vector):
+    # burgers_vector is expected to be in Cartesian (the convention used
+    # for the local-frame dislocations produced by MillerIndices).
     if isinstance(burgers_vector, xp.ndarray):
         burgers_vector = d2h(burgers_vector)
     burgers_vector = np.asarray(burgers_vector)
-    bv_angstrom = cell.to_cartesian_indices(burgers_vector)
-    be = np.sqrt(bv_angstrom[0] ** 2 + bv_angstrom[1] ** 2)
-    bz = bv_angstrom[2]
+    be = np.sqrt(burgers_vector[0] ** 2 + burgers_vector[1] ** 2)
+    bz = burgers_vector[2]
     return be, bz
 
 
