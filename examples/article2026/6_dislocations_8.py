@@ -98,7 +98,7 @@ dislocations = [
         label="$d_6$",
         b=[0, -1, 0],
         position=[14.01, 4.74, 0] + offset_0,
-        plane=(0, 0, -1),
+        plane=(0, 0, 1),
         color="brown"
     )
 ]
