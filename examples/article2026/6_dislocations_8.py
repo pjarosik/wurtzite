@@ -19,8 +19,17 @@ l0 = wzt.generate.create_lattice(
 # PARAMETERS.
 # Number of integration points.
 n_points = 1000
-# Number of iterations
-n_iters = 1
+# Maximum number of iterations of the scheme solving Eq. (29).
+n_iters = 20
+# Method used to solve Eq. (29) for the positions of the dislocations already
+# inserted into the lattice:
+# - "newton": the modified Newton-Raphson scheme, Eqs. (30)-(33),
+# - "picard": successive substitution.
+method = "newton"
+# Relaxation (multiplicity) factor of the Newton-Raphson corrections.
+alpha = 0.6
+# Convergence criterion [A]: stop as soon as max_d ||Delta x_d|| < tol.
+tol = 1e-3
 
 # Display parameters
 # If True, the current configuration will be displayed after each dislocation
@@ -28,16 +37,19 @@ n_iters = 1
 # Otherwise, the current dislocation is only saved to the {name}_{timestamp}.svg
 # file.
 show_img = True
-# OX limits [A]
-xlim = (-25, 60)
-# OY limits [A]
-ylim = (-5, 45)
-# Figure size [inches]
-figsize = (15, 7.5)
+# Field of view: the OX/OY limits are derived from the bounding box of the
+# dislocation cores (see `xlim`/`ylim` below), so that the figures show the
+# neighbourhood of the dislocations instead of the whole -- mostly undistorted
+# -- crystal. `fov_margin` is the margin left around the outermost cores [A].
+fov_margin = 10.0
+# Width of the figure [inches]; the height is derived from the field of view,
+# so that the aspect ratio of the figure matches the aspect ratio of the data
+# (plot_atoms_2d draws with aspect="equal").
+fig_width = 12.0
 # Glide plane line width [points]
 linewidth = 2.5
-# Glide plane length (how far should be the glide plane calcualted).
-gp_offset = 30
+# Glide plane color
+gp_color = "tab:blue"
 
 # offset_0: The offset that will be added to the position of each
 # dislocation.
@@ -102,7 +114,60 @@ dislocations = [
         color="brown"
     )
 ]
-debug_plots = {5}
+# Numbers of the dislocations for which the (interactive, and quite expensive)
+# diagnostic plots of the beta field and the glide planes should be displayed,
+# e.g. {5}. Empty set = batch run.
+debug_plots = set()
+
+# Field of view: the bounding box of the dislocation cores, extended by
+# `fov_margin` and clipped to the extent of the crystal (so that no vacuum is
+# shown around the lattice).
+_cores = np.stack([np.asarray(d.position, dtype=float) for d in dislocations])
+_atoms = np.asarray(l0.coordinates, dtype=float)
+xlim = (max(_cores[:, 0].min() - fov_margin, _atoms[:, 0].min()),
+        min(_cores[:, 0].max() + fov_margin, _atoms[:, 0].max()))
+ylim = (max(_cores[:, 1].min() - fov_margin, _atoms[:, 1].min()),
+        min(_cores[:, 1].max() + fov_margin, _atoms[:, 1].max()))
+# Keep the figure aspect ratio equal to the aspect ratio of the field of view.
+figsize = (fig_width,
+           fig_width * (ylim[1] - ylim[0]) / (xlim[1] - xlim[0]))
+print(f"Field of view: xlim={xlim}, ylim={ylim}, figsize={figsize}")
+
+
+def clip_to_crystal(glide_plane, coordinates, cutoff=2.0):
+    """
+    Restricts the glide plane polyline to the part that actually lies inside the
+    crystal.
+
+    `find_glide_plane` integrates the glide plane over a fixed margin
+    (`glide_plane_margin`) expressed in the local coordinate system of the
+    dislocation, without any reference to the extent of the lattice. Because
+    `create_lattice` produces a skewed (parallelogram) slab, the boundary of the
+    crystal at the height of the glide plane depends on the dislocation, and the
+    fixed margin overshoots it -- the line is then drawn over the vacuum next to
+    the lattice.
+
+    Here the polyline is cut down to the longest contiguous run of vertices that
+    have an atom within `cutoff` [A].
+    """
+    p = np.asarray(glide_plane)
+    p = p.reshape(-1, p.shape[-1])
+    xy = np.asarray(coordinates)[:, :2]
+    distances = np.min(
+        np.linalg.norm(p[:, None, :2] - xy[None, :, :], axis=2), axis=1)
+    inside = distances <= cutoff
+    if not np.any(inside):
+        return p
+    # The longest contiguous run of `inside` vertices.
+    best_start, best_len, start = 0, 0, None
+    for i, flag in enumerate(np.append(inside, False)):
+        if flag and start is None:
+            start = i
+        elif not flag and start is not None:
+            if i - start > best_len:
+                best_start, best_len = start, i - start
+            start = None
+    return p[best_start:best_start + best_len]
 
 
 def main(params):
@@ -125,6 +190,7 @@ def main(params):
 
     ls = []
     all_dislocation_states = []
+    all_convergence = []
 
     for i in range(n_ready_dislocations, len(dislocations)):
         d = dislocations[i]
@@ -136,9 +202,13 @@ def main(params):
             d_n=d,
             n_iters=n_iters,
             n_points=n_points,
+            method=method,
+            alpha=alpha,
+            tol=tol,
             plot_local=(i in debug_plots),
             plot_local_planes=(i in debug_plots)
         )
+        all_convergence.append(log.convergence)
         # Displacement.
         u = log.last_u_atoms
         # Log of the last state
@@ -156,24 +226,36 @@ def main(params):
             wzt.visualization.display_tee_2d(ax, d, scale=0.5)
 
         for p in [log.last_glide_planes[-1]]:
-            ax.plot(p[:, 0], p[:, 1])
+            p = clip_to_crystal(p, l.coordinates)
+            ax.plot(p[:, 0], p[:, 1], color=gp_color, linewidth=linewidth)
 
-        # Save to the image file (.svg)
-        filename = f"{filename_prefix}_dislocation_{i}.svg"
-        fig.savefig(filename)
+        # Save to the image files (.svg for viewing, .pdf ready to be included
+        # in the LaTeX sources of the paper).
+        for extension in ("svg", "pdf"):
+            filename = f"{filename_prefix}_dislocation_{i}.{extension}"
+            fig.savefig(filename, bbox_inches="tight")
+            print(f"Image saved to {filename}")
         # Show image, if enabled.
         if show_img:
             plt.show()
-        print(f"Image saved to {filename}")
 
         ls.append(l)
         all_dislocation_states.append(current_dislocations)
+
+    print("Convergence history (max||Psi|| [A], max||dx|| [A]) per dislocation:")
+    for i, c in enumerate(all_convergence, start=n_ready_dislocations + 1):
+        print(f"  dislocation {i}: {c}")
 
     if is_save_state:
         with open(f"state_{timestamp}.pkl", "wb") as f:
             state = {
                 "l": ls,
-                "dislocations": all_dislocation_states
+                "dislocations": all_dislocation_states,
+                "convergence": all_convergence,
+                "method": method,
+                "n_points": n_points,
+                "alpha": alpha,
+                "tol": tol,
             }
             pickle.dump(state, f)
 

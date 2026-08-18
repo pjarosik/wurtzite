@@ -36,6 +36,10 @@ class DisplacementLog:
         self.points = []
         self.integration_paths = []
         self.energies = []
+        # Convergence history of the iterative scheme solving Eq. (29):
+        # a list of (max ||Psi_d||, max ||Delta x_d||) pairs [A], one per
+        # iteration.
+        self.convergence = []
 
     def log(self, d_state, u_atoms, glide_planes, points=None, integration_paths=None, energy=None):
         self.d_states.append(d_state)
@@ -85,13 +89,23 @@ def postprocess_dislocations(d_state, miller):
 
 def displace(crystal, dislocations, d_n, n_iters=3, alpha=1.0, skip_np1=False, n_points=30000,
              glide_plane_margin=35, points=(), debug=False, only_inv=False, skip_ds=False, skip_atoms=False,
-             same_excluded=False, only_noninv=False, plot_local_planes=False, plot_local=False, custom_paths=dict()):
+             same_excluded=False, only_noninv=False, plot_local_planes=False, plot_local=False, custom_paths=dict(),
+             method="picard", tol=None):
     """
     Displaces the given crystal lattice according to the displacements
     caused by the dislocation d.
 
     :param dislocations: a list of dislocations already inserted in the crystal
     :param d_n: dislocation that we are inserting
+    :param method: the method used to solve the nonlinear equation set (29)
+      for the positions of the already inserted dislocations:
+      "picard" -- successive substitution, x^{i+1} = int(...) (the historical
+      behaviour of this function),
+      "newton" -- the (modified) Newton-Raphson scheme, Eqs. (30)-(33):
+      x^{i+1} = x^i - alpha * J^{-1} Psi^i.
+    :param tol: convergence criterion [A]: the iterations are stopped as soon as
+      max_d ||Delta x_d|| < tol. `None` means: always perform `n_iters`
+      iterations.
     """
 
     # Move all entities into the coordinate system centered in the dislocation d.
@@ -130,7 +144,10 @@ def displace(crystal, dislocations, d_n, n_iters=3, alpha=1.0, skip_np1=False, n
 
     initial_d_state = d_state
 
-    
+    # Convergence history of the iterative scheme solving Eq. (29).
+    # One entry per iteration: (max ||Psi_d||, max ||Delta x_d||) [A].
+    convergence = []
+
     for i in range(n_iters):
         if len(d_state.ds) > 1 and not skip_ds:
             # More than one dislocation -- we need to update the rotation
@@ -140,10 +157,17 @@ def displace(crystal, dislocations, d_n, n_iters=3, alpha=1.0, skip_np1=False, n
             new_ds = []
             new_d_rts = []
             for j, d in enumerate(d_state.ds):
-                # obrot tylko raz
+                if method == "picard":
+                    # obrot tylko raz
+                    rotated = d
+                else:
+                    # The Burgers vector is always rotated starting from its
+                    # REFERENCE orientation, so that the rotations do not
+                    # accumulate over the subsequent iterations.
+                    rotated = _set_d(initial_d_state.ds[j], position=d.position)
                 new_d = rotate_dislocation(
                     crystal=crystal, d_state=d_state,
-                    rotated_dislocation=d,
+                    rotated_dislocation=rotated,
                     exclude_beta={j}
                 )
                 new_ds.append(new_d)
@@ -152,13 +176,26 @@ def displace(crystal, dislocations, d_n, n_iters=3, alpha=1.0, skip_np1=False, n
 
             d_state = DislocationsState(ds=new_ds, ds_rt=new_d_rts)
 
-            # Displace dislocations (excluding the currently added one).
-            new_ds = []
-            for j, d in enumerate(initial_d_state.ds[:-1]):
-                initial_p = h2d(d.position)
-                current_u, _ = get_u_new(  # (3, )
+            # Number of dislocations already present in the lattice -- their
+            # positions are the unknowns of the equation set (29). The position
+            # of the inserted dislocation (the last one) is fixed.
+            n_prev = len(initial_d_state.ds) - 1
+
+            # Residuals Psi_d, Eq. (32), and the derivatives d Psi_d/d x_n,
+            # Eq. (33), evaluated at the current iterate.
+            psis = []
+            jacs = []
+            integrals = []
+            for j in range(n_prev):
+                # The integration path always ends in the reference position
+                # \hat{x}_d of the dislocation.
+                reference_p = h2d(initial_d_state.ds[j].position)
+                jacobian_dislocations = None
+                if method == "newton":
+                    jacobian_dislocations = set(range(n_prev)) - {j}
+                current_u, aux_d = get_u_new(  # (3, )
                     crystal=crystal,
-                    x=initial_p.reshape(1, -1),
+                    x=reference_p.reshape(1, -1),
                     initial_d_state=initial_d_state,
                     current_d_state=d_state,
                     d_n=initial_d_state.ds[-1],
@@ -166,15 +203,52 @@ def displace(crystal, dislocations, d_n, n_iters=3, alpha=1.0, skip_np1=False, n
                     exclude_beta={j},
                     skip_np1=False,
                     n_points=n_points,
+                    jacobian_dislocations=jacobian_dislocations,
                 )
-                current_u = current_u.squeeze()
-                current_p = initial_p + current_u
-                new_d = _set_d(d, position=current_p)
-                new_ds.append(new_d)
+                # The value of the line integral of Eq. (29).
+                integral = reference_p + current_u.squeeze()
+                integrals.append(integral)
+                psis.append(integral - h2d(d_state.ds[j].position))
+                jacs.append(aux_d["jacobian"])
+
+            if method == "picard":
+                # x^{i+1} = int(...), i.e. the integral is taken as the new
+                # position, and the correction is measured with respect to the
+                # reference position of the dislocation.
+                deltas = [integrals[j] - h2d(initial_d_state.ds[j].position)
+                          for j in range(n_prev)]
+            elif method == "newton":
+                deltas = newton_raphson_step(psis=psis, jacs=jacs, alpha=alpha)
+            else:
+                raise ValueError(f"Unknown method: {method}")
+
+            residual = max(float(xp.linalg.norm(h2d(p)[:2])) for p in psis)
+            step = max(float(xp.linalg.norm(h2d(dx)[:2])) for dx in deltas)
+            convergence.append((residual, step))
+            print(f"Iteration {i}: max||Psi|| = {residual:.3e} A, "
+                  f"max||dx|| = {step:.3e} A")
+
+            new_ds = []
+            for j in range(n_prev):
+                if method == "picard":
+                    # NOTE: historically the Burgers vector determined in the
+                    # rotation step above was dropped for the previous
+                    # dislocations, and the correction was always referred to
+                    # the reference position.
+                    d = initial_d_state.ds[j]
+                else:
+                    d = d_state.ds[j]
+                new_p = h2d(d.position) + deltas[j]
+                new_ds.append(_set_d(d, position=new_p))
 
             # Leave the d_n unmodified.
             new_ds.append(d_state.ds[-1])
             d_state = DislocationsState(ds=new_ds, ds_rt=new_d_rts)
+
+            if tol is not None and step < tol:
+                print(f"Converged after {i+1} iteration(s) "
+                      f"(max||dx|| = {step:.3e} A < {tol:.3e} A).")
+                break
 
     current_d_state = d_state
 
@@ -358,6 +432,7 @@ def displace(crystal, dislocations, d_n, n_iters=3, alpha=1.0, skip_np1=False, n
             points=new_points,
             integration_paths=new_ip
         )
+    postprocessed_log.convergence = convergence
 
     return postprocessed_log
 
@@ -365,9 +440,15 @@ def displace(crystal, dislocations, d_n, n_iters=3, alpha=1.0, skip_np1=False, n
 def get_u_new(x, initial_d_state, crystal, d_n, skip_np1, current_d_state,
               exclude_beta: set = None, n_points=20000, debug=False, only_inv=False,
               glide_planes=None, same_excluded=False, only_noninv=False,
-              path_via_energy=False, atom_local_coordinates=None, custom_paths=dict()):
+              path_via_energy=False, atom_local_coordinates=None, custom_paths=dict(),
+              jacobian_dislocations=None):
     """
     :param x_0: the initial position of the atom (before iterating)
+    :param jacobian_dislocations: a collection of dislocation numbers for which
+      the derivative of the computed line integral with respect to the
+      dislocation position should be determined (Eq. (33)); the derivatives are
+      returned in aux["jacobian"] as a dictionary
+      dislocation number -> (n x, 2, 2) array
 
     NOTE: the crystal.coordinates are in the GLOBAL coordinate system; please
     atom_local_coordinates instead.
@@ -466,27 +547,44 @@ def get_u_new(x, initial_d_state, crystal, d_n, skip_np1, current_d_state,
         exclude_beta=F_2_excluded_beta
     )
 
-    if only_inv:
-        func = integrate_paths_euler_parallel_only_inv
-    elif only_noninv:
-        func = integrate_paths_euler_parallel_only_noninv
+    jacobian = None
+    if jacobian_dislocations:
+        dbetas = {
+            n: (lambda y, n=n: dbeta_sigma_single(
+                points=y, crystal=crystal, d_state=current_d_state,
+                dislocation_nr=n))
+            for n in jacobian_dislocations
+        }
+        result, jacobian = integrate_paths_euler_parallel_with_jacobian(
+            x0=x_o, path_points=paths, F1=F1, F2=F2, dbetas=dbetas
+        )
     else:
-        func = integrate_paths_euler_parallel
+        if only_inv:
+            func = integrate_paths_euler_parallel_only_inv
+        elif only_noninv:
+            func = integrate_paths_euler_parallel_only_noninv
+        else:
+            func = integrate_paths_euler_parallel
 
-    result = func( # (n traj (atoms), n_steps, 2)
-        x0=x_o,
-        path_points=paths,
-        # F_{\Sigma_{N+1}}
-        F1=F1,
-        # F^{-1}_{\Sigma_N}
-        F2=F2
-    )
+        result = func( # (n traj (atoms), n_steps, 2)
+            x0=x_o,
+            path_points=paths,
+            # F_{\Sigma_{N+1}}
+            F1=F1,
+            # F^{-1}_{\Sigma_N}
+            F2=F2
+        )
     result = result[:, -1, :]  # Use the final integration value (n atoms, 2)
     # Just for the backward compatibility -- return displacement instead of the
     # final position.
-    result = xp.concatenate((result, xp.zeros((n_x, 1))), axis=1)
-    u = result - x
-    return u, {"integration_paths": paths_orig, "energies": energies}
+    # NOTE: the line integration is performed in the plane perpendicular to the
+    # dislocation lines, so the out-of-plane component of the displacement
+    # vanishes (the screw component of the Burgers vector is carried by the
+    # \beta_{z\cdot} components of the distortion field, not by this integral).
+    u = xp.zeros(x.shape)
+    u[:, :2] = result - x[:, :2]
+    return u, {"integration_paths": paths_orig, "energies": energies,
+               "jacobian": jacobian}
 
 
 def get_F_inv(points, crystal, d_state, exclude_beta):
@@ -1056,6 +1154,203 @@ def beta(x, be, bz):
     core_center_atoms = r2 < 1e-15  # (natoms, )
     result[core_center_atoms, :, :] = BETA_ONES
     return result  # (natoms, 3, 3)
+
+
+def newton_raphson_step(psis, jacs, alpha=1.0):
+    """
+    A single step of the Newton-Raphson scheme of Eqs. (30)-(33).
+
+    The (2N x 2N) Jacobian of the equation set (29) is assembled from
+    d Psi_d / d x_n, where (Eq. (33))
+
+        d Psi_d/d x_d = -1,
+        d Psi_d/d x_n = d/dx_n int F^{d'}_{Sigma_{N+1}} F^{-1}_{Sigma_N^d} dl
+                        (d != n),
+
+    and the correction factors read Delta x = -J^{-1} Psi.
+
+    :param psis: a list of N residuals Psi_d (each of them a vector of length
+      >= 2; only the in-plane components are taken into account)
+    :param jacs: a list of N dictionaries: n -> (1, 2, 2) array with
+      d (int)_i/d x_n^k; `None` means that all the off-diagonal derivatives are
+      neglected (the scheme degenerates then to successive substitution)
+    :param alpha: relaxation (multiplicity) factor
+    :return: a list of N corrections Delta x_d (vectors of length 3)
+    """
+    n_prev = len(psis)
+    jacobian = xp.zeros((2 * n_prev, 2 * n_prev), dtype=xp.float64)
+    residual = xp.zeros(2 * n_prev, dtype=xp.float64)
+
+    for d in range(n_prev):
+        residual[2 * d:2 * d + 2] = h2d(psis[d])[:2]
+        # d Psi_d / d x_d = -1
+        jacobian[2 * d:2 * d + 2, 2 * d:2 * d + 2] = -xp.eye(2)
+        if not jacs[d]:
+            continue
+        for n, value in jacs[d].items():
+            if n == d:
+                continue
+            jacobian[2 * d:2 * d + 2, 2 * n:2 * n + 2] = \
+                xp.asarray(value).reshape(2, 2)
+
+    deltas_flat = -alpha * xp.linalg.solve(jacobian, residual)
+
+    deltas = []
+    for d in range(n_prev):
+        delta = xp.zeros(3, dtype=xp.float64)
+        delta[:2] = deltas_flat[2 * d:2 * d + 2]
+        deltas.append(delta)
+    return deltas
+
+
+def dbeta(x, be, bz):
+    """
+    Analytic gradient of the elemental lattice distortion field
+    (Eq. (18) of the paper), i.e. d beta_{ij} / d x_k.
+
+    NOTE: this is the derivative with respect to the FIELD coordinate x.
+    The derivative with respect to the dislocation position x_d
+    (the one appearing in Eq. (33)) is the opposite one, since
+    beta_d(x) = beta(x - x_d).
+
+    :param x: points (n points, >= 2), local coordinate system of the
+      dislocation (i.e. OX parallel to the edge component of the Burgers vector)
+    :return: array (n points, 3, 3, 2), where [:, i, j, k] = d beta_{ij}/d x_k
+    """
+    x = h2d(x)
+    if len(x.shape) == 1:
+        x = x[xp.newaxis, ...]
+
+    x1 = x[..., 0]
+    x2 = x[..., 1]
+    x1_2 = x1 ** 2
+    x2_2 = x2 ** 2
+    r2 = x1_2 + x2_2
+
+    # be/(4 pi (1-nu) r^6)
+    c = be / (4.0 * xp.pi * (1.0 - NU) * r2 * r2 * r2)
+    # bz/(2 pi r^4)
+    e = bz / (2.0 * xp.pi * r2 * r2)
+
+    two_nu_r2 = 2.0 * NU * r2
+    quad = 2.0 * NU * (x1_2 * x1_2 - x2_2 * x2_2)
+
+    db11_dx1 = -2.0 * c * x1 * x2 * (two_nu_r2 - 3.0 * x1_2 + x2_2)
+    db11_dx2 = c * (quad - 3.0 * x1_2 * x1_2 + 6.0 * x1_2 * x2_2 + x2_2 * x2_2)
+    db21_dx1 = -c * (quad - x1_2 * x1_2 - 6.0 * x1_2 * x2_2 + 3.0 * x2_2 * x2_2)
+    db21_dx2 = -2.0 * c * x1 * x2 * (two_nu_r2 + x1_2 - 3.0 * x2_2)
+    db12_dx2 = 2.0 * c * x1 * x2 * (two_nu_r2 - 5.0 * x1_2 - x2_2)
+    db22_dx2 = c * (quad + x1_2 * x1_2 - 6.0 * x1_2 * x2_2 + x2_2 * x2_2)
+    db31_dx1 = 2.0 * e * x1 * x2
+    db31_dx2 = -e * (x1_2 - x2_2)
+    db32_dx2 = -2.0 * e * x1 * x2
+
+    result = xp.zeros((len(x1), 3, 3, 2))
+    result[:, 0, 0, 0] = db11_dx1
+    result[:, 0, 0, 1] = db11_dx2
+    result[:, 1, 0, 0] = db21_dx1
+    result[:, 1, 0, 1] = db21_dx2
+    result[:, 2, 0, 0] = db31_dx1
+    result[:, 2, 0, 1] = db31_dx2
+    # beta is a gradient of a displacement field, hence
+    # d beta_{i1}/d x2 == d beta_{i2}/d x1.
+    result[:, 0, 1, 0] = db11_dx2
+    result[:, 0, 1, 1] = db12_dx2
+    result[:, 1, 1, 0] = db21_dx2
+    result[:, 1, 1, 1] = db22_dx2
+    result[:, 2, 1, 0] = db31_dx2
+    result[:, 2, 1, 1] = db32_dx2
+
+    # The core singularity is regularized in the same way as in `beta`.
+    core_center_atoms = r2 < 1e-15
+    result[core_center_atoms, ...] = 0.0
+    return result  # (n points, 3, 3, 2)
+
+
+def dbeta_rotated(crystal, d, points, rotation_matrix):
+    """
+    d beta_{ij}/d x_k of a single dislocation `d`, expressed in the coordinate
+    system in which `points` are given (cf. `beta_rotated`).
+
+    beta_d(x) = R beta(R^T (x - x_d)) R^T, hence
+    d beta_d,ij / d x_k = R_ia R_jb R_kc  d beta_ab / d x'_c.
+
+    :return: (n points, 2, 2, 2), where [:, i, j, k] = d beta_{ij}/d x_k
+    """
+    if rotation_matrix is None:
+        return xp.zeros((points.shape[0], 2, 2, 2))
+
+    be, bz = get_be_bz(crystal.cell, d.b)
+    points = h2d(points) - h2d(d.position[:2]).reshape(1, -1)
+    points = rotation_matrix.T.dot(points.T).T
+    dbetas = dbeta(points, be=be, bz=bz)[:, :2, :2, :]  # (n, 2, 2, 2)
+    rm = rotation_matrix[:2, :2]
+    return xp.einsum("ia,jb,kc,nabc->nijk", rm, rm, rm, dbetas)
+
+
+def dbeta_sigma_single(points, crystal, d_state: DislocationsState,
+                       dislocation_nr: int):
+    """
+    d beta_n / d x of a single (n = `dislocation_nr`) dislocation of `d_state`,
+    evaluated at `points`.
+
+    :return: (n points, 2, 2, 2), where [:, i, j, k] = d beta_{ij}/d x_k
+    """
+    d = d_state.ds[dislocation_nr]
+    rt = calculate_rotation_matrix_for_vector(v=d.b)
+    return dbeta_rotated(
+        points=points, crystal=crystal, d=d, rotation_matrix=rt
+    )
+
+
+def integrate_paths_euler_parallel_with_jacobian(x0, path_points, F1, F2, dbetas):
+    """
+    The same Euler integration as `integrate_paths_euler_parallel`, but it
+    additionally accumulates the derivatives of the resulting line integral
+    with respect to the positions of the dislocations listed in `dbetas`
+    (Eq. (33) of the paper).
+
+    d/dx_n int F_{Sigma_{N+1}} F^{-1}_{Sigma_N} dl
+        = - int F_{Sigma_{N+1}} (d beta_n/d x) F_{Sigma_{N+1}} F^{-1}_{Sigma_N} dl
+
+    (the minus sign comes from beta_n(x) = beta(x - x_n)).
+
+    :param dbetas: a dictionary: dislocation number -> callable f(y), which
+      returns (n_traj, 2, 2, 2) array of d beta_n/d x evaluated at y
+    :return: (traj, jac), where jac is a dictionary:
+      dislocation number -> (n_traj, 2, 2) array of d (int)_i / d x_n^k
+    """
+    dl_list = xp.diff(path_points, axis=1)  # (n_traj, n_steps, 2)
+    n_traj, n_steps = dl_list.shape[0], dl_list.shape[1]
+
+    traj = xp.zeros((n_traj, n_steps + 1, 2), dtype=xp.float64)
+    traj[:, 0, :] = x0
+
+    jac = {n: xp.zeros((n_traj, 2, 2), dtype=xp.float64) for n in dbetas}
+
+    y = xp.broadcast_to(x0, (n_traj, 2)).copy()
+    p = path_points[:, 0, :].copy()
+
+    for i in range(n_steps):
+        print(f"Step (with jacobian): {i}", end="\r")
+        F1y = F1(y)  # (n_traj, 2, 2)
+        F2p = F2(p)  # (n_traj, 2, 2)
+        mat = xp.matmul(F1y, F2p)  # (n_traj, 2, 2)
+        dl = dl_list[:, i, :]
+
+        for n, dbeta_fn in dbetas.items():
+            # (n_traj, 2, 2, 2): [:, i, j, k] = d beta_n,ij / d x_k
+            g = dbeta_fn(y)
+            # F1 (d beta_n/d x_k) F1 F2 dl, for each k
+            m = xp.einsum("nia,nabk,nbc,ncj,nj->nik", F1y, g, F1y, F2p, dl)
+            jac[n] = jac[n] - m
+
+        dy = xp.einsum('nij,nj->ni', mat, dl)
+        y = y + dy
+        traj[:, i + 1, :] = y
+        p = p + dl
+
+    return traj, jac
 
 
 def rotate_dislocation(crystal, d_state, rotated_dislocation, exclude_beta):
