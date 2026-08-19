@@ -50,6 +50,10 @@ fig_width = 12.0
 linewidth = 2.5
 # Glide plane color
 gp_color = "tab:blue"
+# The glide plane is not drawn closer than this [A] to any dislocation core:
+# there the two lips of the cut merge, the displacement carried onto the
+# polyline stops being meaningful and the line kinks (see clip_glide_plane).
+gp_core_radius = 4.0
 
 # offset_0: The offset that will be added to the position of each
 # dislocation.
@@ -134,40 +138,57 @@ figsize = (fig_width,
 print(f"Field of view: xlim={xlim}, ylim={ylim}, figsize={figsize}")
 
 
-def clip_to_crystal(glide_plane, coordinates, cutoff=2.0):
+def clip_glide_plane(glide_plane, coordinates, cores, atom_cutoff=2.0,
+                     core_radius=4.0, min_vertices=5):
     """
-    Restricts the glide plane polyline to the part that actually lies inside the
-    crystal.
+    Selects the parts of the glide plane polyline that are worth drawing, and
+    returns them as a list of separate polylines.
 
-    `find_glide_plane` integrates the glide plane over a fixed margin
-    (`glide_plane_margin`) expressed in the local coordinate system of the
-    dislocation, without any reference to the extent of the lattice. Because
-    `create_lattice` produces a skewed (parallelogram) slab, the boundary of the
-    crystal at the height of the glide plane depends on the dislocation, and the
-    fixed margin overshoots it -- the line is then drawn over the vacuum next to
-    the lattice.
+    Two parts are dropped:
 
-    Here the polyline is cut down to the longest contiguous run of vertices that
-    have an atom within `cutoff` [A].
+    1. Everything outside the crystal. `find_glide_plane` integrates the glide
+       plane over a fixed margin (`glide_plane_margin`) expressed in the local
+       coordinate system of the dislocation, without any reference to the extent
+       of the lattice. Because `create_lattice` produces a skewed (parallelogram)
+       slab, the boundary of the crystal at the height of the glide plane depends
+       on the dislocation, and the fixed margin overshoots it -- the line would
+       be drawn over the vacuum next to the lattice. Vertices further than
+       `atom_cutoff` [A] from any atom are dropped.
+
+    2. Everything closer than `core_radius` [A] to a dislocation core.
+       `displace_glide_plane` carries the polyline into the current configuration
+       by averaging the displacements of the atoms just above and just below the
+       cut. Close to a core the two lips of the cut merge, that average stops
+       being meaningful, and the polyline visibly kinks (up to ~40 deg, whereas
+       the polyline coming out of the ODE is smooth to within 0.4 deg). The core
+       is also exactly where the continuum description does not apply, so the
+       glide plane is simply not drawn there.
+
+    The polyline may be cut into several pieces -- it is dropped near EVERY core,
+    not only near the core of its own dislocation -- hence a list is returned.
+    Pieces shorter than `min_vertices` vertices are discarded.
     """
     p = np.asarray(glide_plane)
     p = p.reshape(-1, p.shape[-1])
     xy = np.asarray(coordinates)[:, :2]
-    distances = np.min(
+    cores = np.asarray(cores, dtype=float)[:, :2]
+
+    to_atom = np.min(
         np.linalg.norm(p[:, None, :2] - xy[None, :, :], axis=2), axis=1)
-    inside = distances <= cutoff
-    if not np.any(inside):
-        return p
-    # The longest contiguous run of `inside` vertices.
-    best_start, best_len, start = 0, 0, None
-    for i, flag in enumerate(np.append(inside, False)):
+    to_core = np.min(
+        np.linalg.norm(p[:, None, :2] - cores[None], axis=2), axis=1)
+    keep = (to_atom <= atom_cutoff) & (to_core >= core_radius)
+
+    segments = []
+    start = None
+    for i, flag in enumerate(np.append(keep, False)):
         if flag and start is None:
             start = i
         elif not flag and start is not None:
-            if i - start > best_len:
-                best_start, best_len = start, i - start
+            if i - start >= min_vertices:
+                segments.append(p[start:i])
             start = None
-    return p[best_start:best_start + best_len]
+    return segments
 
 
 def main(params):
@@ -191,6 +212,7 @@ def main(params):
     ls = []
     all_dislocation_states = []
     all_convergence = []
+    all_glide_planes = []
 
     for i in range(n_ready_dislocations, len(dislocations)):
         d = dislocations[i]
@@ -225,8 +247,14 @@ def main(params):
         for d in current_dislocations:
             wzt.visualization.display_tee_2d(ax, d, scale=0.5)
 
-        for p in [log.last_glide_planes[-1]]:
-            p = clip_to_crystal(p, l.coordinates)
+        # The glide plane carried into the configuration that is actually drawn
+        # (i.e. after the current dislocation has been inserted).
+        cores = [d.position for d in current_dislocations]
+        segments = clip_glide_plane(log.last_glide_planes_displaced[-1],
+                                    l.coordinates, cores,
+                                    core_radius=gp_core_radius)
+        all_glide_planes.append(segments)
+        for p in segments:
             ax.plot(p[:, 0], p[:, 1], color=gp_color, linewidth=linewidth)
 
         # Save to the image files (.svg for viewing, .pdf ready to be included
@@ -252,6 +280,9 @@ def main(params):
                 "l": ls,
                 "dislocations": all_dislocation_states,
                 "convergence": all_convergence,
+                # The glide plane of the dislocation inserted as the last one,
+                # as drawn in the figures (clipped to the crystal).
+                "glide_planes": all_glide_planes,
                 "method": method,
                 "n_points": n_points,
                 "alpha": alpha,

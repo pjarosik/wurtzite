@@ -33,6 +33,10 @@ class DisplacementLog:
         self.d_states = []
         self.u_atoms = []
         self.glide_planes = []
+        # The glide planes carried into the configuration AFTER the currently
+        # inserted dislocation is applied. Display only -- see
+        # displace_glide_plane().
+        self.glide_planes_displaced = []
         self.points = []
         self.integration_paths = []
         self.energies = []
@@ -41,10 +45,13 @@ class DisplacementLog:
         # iteration.
         self.convergence = []
 
-    def log(self, d_state, u_atoms, glide_planes, points=None, integration_paths=None, energy=None):
+    def log(self, d_state, u_atoms, glide_planes, points=None, integration_paths=None, energy=None,
+            glide_planes_displaced=None):
         self.d_states.append(d_state)
         self.u_atoms.append(u_atoms)
         self.glide_planes.append(glide_planes)
+        self.glide_planes_displaced.append(
+            glide_planes if glide_planes_displaced is None else glide_planes_displaced)
         self.points.append(points)
         self.integration_paths.append(integration_paths)
         self.energies.append(energy)
@@ -63,6 +70,10 @@ class DisplacementLog:
     @property
     def last_glide_planes(self):
         return self.glide_planes[-1]
+
+    @property
+    def last_glide_planes_displaced(self):
+        return self.glide_planes_displaced[-1]
 
     @property
     def last_integration_paths(self):
@@ -135,7 +146,8 @@ def displace(crystal, dislocations, d_n, n_iters=3, alpha=1.0, skip_np1=False, n
     glide_planes = []
     for i in range(len(d_state.ds)):
         glide_plane = find_glide_plane(
-            crystal, d_state, margin=glide_plane_margin, dislocation_nr=i)
+            crystal, d_state, margin=glide_plane_margin, dislocation_nr=i,
+            atoms_local=initial_atoms_local)
         glide_planes.append(glide_plane)
 
     # Initialize with u = 0.
@@ -256,7 +268,8 @@ def displace(crystal, dislocations, d_n, n_iters=3, alpha=1.0, skip_np1=False, n
     glide_planes = []
     for i in range(len(d_state.ds)):
         glide_plane = find_glide_plane(
-            crystal, initial_d_state, margin=glide_plane_margin, dislocation_nr=i, debug=True)
+            crystal, initial_d_state, margin=glide_plane_margin, dislocation_nr=i, debug=True,
+            atoms_local=initial_atoms_local)
         glide_planes.append(glide_plane)
 
     if plot_local:
@@ -386,22 +399,40 @@ def displace(crystal, dislocations, d_n, n_iters=3, alpha=1.0, skip_np1=False, n
             pp = pp + u_points
             output_points.append(pp)
 
+    # Presentation only: the same glide planes, carried into the configuration
+    # obtained after the current dislocation is inserted (that is the
+    # configuration in which the atoms are drawn).
+    if skip_atoms:
+        glide_planes_displaced = glide_planes
+    else:
+        glide_planes_displaced = [
+            displace_glide_plane(g, atoms_local=initial_p, u_atoms=u_atoms)
+            for g in glide_planes
+        ]
+
     log.log(d_state=current_d_state, u_atoms=u_atoms,
         glide_planes=glide_planes,
         points=output_points,
         integration_paths=aux["integration_paths"],
-        energy=aux["energies"]
+        energy=aux["energies"],
+        glide_planes_displaced=glide_planes_displaced,
     )
 
     # Move back all the dislocations and atoms to the global coordinate system.
     # postprocess
     postprocessed_log = DisplacementLog()
-    for u, d, gs, p, ip in zip(log.u_atoms, log.d_states, log.glide_planes, log.points, log.integration_paths):
+    for u, d, gs, gds, p, ip in zip(log.u_atoms, log.d_states, log.glide_planes,
+                                    log.glide_planes_displaced, log.points,
+                                    log.integration_paths):
         u = d2h(miller.postprocess(u))
         new_gs = []
         for g in gs:
             g = d2h(miller.postprocess_points(g))
             new_gs.append(g)
+        new_gds = []
+        for g in gds:
+            g = d2h(miller.postprocess_points(g))
+            new_gds.append(g)
 
         new_points = []
         if points:
@@ -430,7 +461,8 @@ def displace(crystal, dislocations, d_n, n_iters=3, alpha=1.0, skip_np1=False, n
             u_atoms=u,
             glide_planes=new_gs,
             points=new_points,
-            integration_paths=new_ip
+            integration_paths=new_ip,
+            glide_planes_displaced=new_gds,
         )
     postprocessed_log.convergence = convergence
 
@@ -1451,7 +1483,114 @@ def _set_d(dislocation, **kwargs):
 
 
 ## Glide plane
-def get_glide_plane(crystal, d_state, dislocation_nr, margin=45, debug=False):
+def snap_to_interplanar_midheight(atoms_local, x0, y0, window=12.0):
+    """
+    Moves `y0` to the mid-height between the nearest atomic plane above and the
+    nearest one below it.
+
+    The glide plane has to run BETWEEN two atomic planes -- it cuts the bonds
+    joining them, and should cross each of those bonds close to its midpoint.
+    The position of the core, however, is given by hand (`DislocationDef.
+    position`), so its y coordinate in the local coordinate system of the
+    dislocation is in general NOT the mid-height between the two planes that the
+    glide plane separates. For the dislocations whose Burgers vector is not
+    parallel to OX the resulting offset reaches ~0.7 A -- almost the whole
+    distance to the neighbouring plane -- and the glide plane ends up running
+    through the atoms instead of between them.
+
+    :param atoms_local: atom coordinates in the local coordinate system of the
+      dislocation for which the glide plane is determined
+    :param x0, y0: the position of the core in that coordinate system
+    """
+    a = d2h(atoms_local)
+    n = len(a)
+    for w in (window, 2 * window, None):
+        sel = np.ones(n, dtype=bool) if w is None else np.abs(a[:, 0] - x0) < w
+        y = a[sel, 1]
+        above = y[y > y0]
+        below = y[y < y0]
+        if above.size > 0 and below.size > 0:
+            return 0.5 * (float(above.min()) + float(below.max()))
+    # No atoms on one of the sides -- leave the core height unchanged.
+    return y0
+
+
+def displace_glide_plane(glide_plane, atoms_local, u_atoms, n_smooth=5):
+    """
+    Carries the glide plane from the configuration in which it was determined
+    into the configuration obtained AFTER the currently inserted dislocation is
+    applied. Intended for presentation purposes only.
+
+    `find_glide_plane` traces the glide plane in the configuration produced by
+    the dislocations inserted EARLIER -- the field of the dislocation that is
+    being inserted cannot be taken into account there, since it is exactly the
+    field that creates the cut. The atoms, on the other hand, are drawn after
+    that dislocation is applied, so the glide plane determined this way is drawn
+    in a configuration it does not belong to.
+
+    Once the dislocation is inserted, the cut surface splits into two lips that
+    slip by the Burgers vector with respect to each other, so a single line can
+    only represent the surface half-way between them. That surface is displaced
+    by the mean of the displacements of the material just above and just below
+    the cut: the slip is tangent to the glide plane, so it cancels in the mean,
+    and what is left is the (continuous) normal displacement.
+
+    Here that mean is evaluated from the atoms themselves: for every vertex of
+    the polyline the displacements of the nearest atom above and the nearest
+    atom below the cut are averaged. The result is smoothed along the polyline
+    with a moving average of `n_smooth` vertices, to remove the jumps occurring
+    where the nearest atom changes.
+
+    :param glide_plane: the glide plane polyline, local coordinate system
+    :param atoms_local: atom coordinates before the insertion, local coordinates
+    :param u_atoms: displacements of those atoms, local coordinate system
+    """
+    g = d2h(glide_plane)
+    g = g.reshape(-1, g.shape[-1])
+    a = d2h(atoms_local)[:, :2]
+    u = d2h(u_atoms)[:, :2]
+
+    # Signed distance of every atom from the polyline (positive == above).
+    p0 = g[:-1, :2]
+    seg = g[1:, :2] - p0
+    seg_len2 = np.maximum(np.sum(seg ** 2, axis=1), 1e-12)
+    w = a[:, None, :] - p0[None, :, :]
+    t = np.clip(np.sum(w * seg[None], axis=2) / seg_len2[None], 0.0, 1.0)
+    delta = w - t[:, :, None] * seg[None]
+    dist = np.linalg.norm(delta, axis=2)
+    nearest_seg = np.argmin(dist, axis=1)
+    rows = np.arange(len(a))
+    normal = np.stack([-seg[:, 1], seg[:, 0]], axis=1)
+    normal = normal / np.linalg.norm(normal, axis=1, keepdims=True)
+    side = np.sign(np.sum(delta[rows, nearest_seg] * normal[nearest_seg], axis=1))
+
+    # For every vertex: the nearest atom above and the nearest atom below.
+    d_vertex = np.linalg.norm(g[:, None, :2] - a[None, :, :], axis=2)
+    above = side > 0
+    below = side < 0
+    if not np.any(above) or not np.any(below):
+        return glide_plane
+    du = np.zeros((len(g), 2))
+    d_above = np.where(above[None, :], d_vertex, np.inf)
+    d_below = np.where(below[None, :], d_vertex, np.inf)
+    i_above = np.argmin(d_above, axis=1)
+    i_below = np.argmin(d_below, axis=1)
+    du = 0.5 * (u[i_above] + u[i_below])
+
+    # Moving average along the polyline.
+    if n_smooth > 1 and len(du) > n_smooth:
+        kernel = np.ones(n_smooth) / n_smooth
+        padded = np.pad(du, ((n_smooth // 2, n_smooth // 2), (0, 0)), mode="edge")
+        du = np.stack([np.convolve(padded[:, k], kernel, mode="valid")[:len(g)]
+                       for k in range(2)], axis=1)
+
+    result = g.copy()
+    result[:, :2] = g[:, :2] + du
+    return h2d(result)
+
+
+def get_glide_plane(crystal, d_state, dislocation_nr, margin=45, debug=False,
+                    atoms_local=None):
     d_n = d_state.ds[dislocation_nr]
     # NOTE: y0 must be determined for the system located in d2
     f21 = []
@@ -1483,6 +1622,10 @@ def get_glide_plane(crystal, d_state, dislocation_nr, margin=45, debug=False):
     position = np.asarray(position).copy()
     # Just don't start too close to the current dislocation
     x0, y0, _ = np.squeeze(position)
+    # The glide plane must separate two atomic planes, not cut through one of
+    # them -- see snap_to_interplanar_midheight().
+    if atoms_local is not None:
+        y0 = snap_to_interplanar_midheight(atoms_local, x0=x0, y0=y0)
     # TODO: rotate according to the burgers vector (this will not work for e.g. b = (1, 1, 0))
     t_span = (x0, -margin)
 
@@ -1501,10 +1644,12 @@ def get_glide_plane(crystal, d_state, dislocation_nr, margin=45, debug=False):
     return result
 
 
-def find_glide_plane(crystal, d_state, dislocation_nr, margin=45, debug=False):
+def find_glide_plane(crystal, d_state, dislocation_nr, margin=45, debug=False,
+                     atoms_local=None):
     return h2d(get_glide_plane(crystal=crystal, d_state=d_state,
                                dislocation_nr=dislocation_nr,
-                               margin=margin, debug=debug))
+                               margin=margin, debug=debug,
+                               atoms_local=atoms_local))
 
 
 def calculate_energies(l, local_coordinates, d_state):
