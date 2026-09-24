@@ -161,3 +161,13 @@ class DislocationDef:
     plane: tuple
     label: str = "d"
     color: str = "brown"
+    # Direction of the trace of the extra half-plane in the CURRENT (deformed)
+    # configuration. The half-plane is a material plane, so its trace is carried
+    # by the distortion field F and is perpendicular to b only in the reference
+    # lattice. Set by dislocations.displace(); used for drawing the tee symbol.
+    half_plane: np.ndarray = None
+    # Direction of the Burgers vector in the REFERENCE (perfect) lattice. Unlike
+    # `b` it is never transformed by F -- it only follows changes of coordinate
+    # frame -- so `half_plane` can be recomputed from the current total
+    # distortion at every insertion instead of accumulating it.
+    b_ref: np.ndarray = None

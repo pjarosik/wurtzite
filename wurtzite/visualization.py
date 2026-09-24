@@ -730,8 +730,15 @@ def display_tee_2d(ax, d: wurtzite.model.DislocationDef, line_width=6, zorder=10
     t_left_x, t_left_y = pos[:2] - b[:2]  # left
     t_center_x, t_center_y = pos[:2]  # center
     t_right_x, t_right_y = pos[:2] + b[:2]  # right
-    # top (bv rotated by pi/2)
-    bv_rotated = np.asarray([-b[1], b[0]])
+    # The stem points along the trace of the extra half-plane. That plane is a
+    # material plane, so where the lattice is sheared its trace is NOT
+    # perpendicular to b; b rotated by pi/2 is only the undeformed-lattice
+    # approximation, kept here for dislocations that do not carry `half_plane`.
+    half_plane = getattr(d, "half_plane", None)
+    if half_plane is None:
+        bv_rotated = np.asarray([-b[1], b[0]])
+    else:
+        bv_rotated = np.asarray(half_plane, dtype=float)[:2] * scale
     t_top_x, t_top_y = pos[:2] + bv_rotated  # top
     
     ax.plot([t_left_x, t_right_x], [t_left_y, t_right_y], color=d.color, lw=line_width, zorder=zorder)

@@ -39,6 +39,12 @@ class DisplacementLog:
         self.glide_planes_displaced = []
         self.points = []
         self.integration_paths = []
+        # The integration paths of Eq. (29) that end in the reference position
+        # \hat{x}_d of a dislocation ALREADY present in the lattice, i.e. the
+        # ones whose line integral gives that dislocation its new position --
+        # one per previously inserted dislocation, from the last iteration.
+        # Display only.
+        self.dislocation_paths = []
         self.energies = []
         # Convergence history of the iterative scheme solving Eq. (29):
         # a list of (max ||Psi_d||, max ||Delta x_d||) pairs [A], one per
@@ -46,7 +52,7 @@ class DisplacementLog:
         self.convergence = []
 
     def log(self, d_state, u_atoms, glide_planes, points=None, integration_paths=None, energy=None,
-            glide_planes_displaced=None):
+            glide_planes_displaced=None, dislocation_paths=None):
         self.d_states.append(d_state)
         self.u_atoms.append(u_atoms)
         self.glide_planes.append(glide_planes)
@@ -54,6 +60,7 @@ class DisplacementLog:
             glide_planes if glide_planes_displaced is None else glide_planes_displaced)
         self.points.append(points)
         self.integration_paths.append(integration_paths)
+        self.dislocation_paths.append(dislocation_paths)
         self.energies.append(energy)
 
     def get_u_atoms(self):
@@ -78,6 +85,10 @@ class DisplacementLog:
     @property
     def last_integration_paths(self):
         return self.integration_paths[-1]
+
+    @property
+    def last_dislocation_paths(self):
+        return self.dislocation_paths[-1]
 
     @property
     def last_energy(self):
@@ -123,7 +134,9 @@ def displace(crystal, dislocations, d_n, n_iters=3, alpha=1.0, skip_np1=False, n
     miller = MillerIndices(crystal=crystal, dislocation=d_n)
     # (n atoms, 3)
     # - The introduced dislocation (move to the (0, 0, 0))
-    initial_dn_local = dataclasses.replace(d_n, position=[0.0, 0, 0], b=[1.0, 0.0, 0.0])
+    initial_dn_local = dataclasses.replace(
+        d_n, position=[0.0, 0, 0], b=[1.0, 0.0, 0.0],
+        half_plane=[0.0, 1.0, 0.0], b_ref=[1.0, 0.0, 0.0])
     # - Other dislocations
     initial_ds_local = [miller.preprocess_dislocation(d) for d in dislocations]
     # - Atoms
@@ -159,6 +172,9 @@ def displace(crystal, dislocations, d_n, n_iters=3, alpha=1.0, skip_np1=False, n
     # Convergence history of the iterative scheme solving Eq. (29).
     # One entry per iteration: (max ||Psi_d||, max ||Delta x_d||) [A].
     convergence = []
+    # The integration paths that end in the reference positions of the
+    # dislocations already present, kept from the LAST iteration. Display only.
+    dislocation_paths = None
 
     for i in range(n_iters):
         if len(d_state.ds) > 1 and not skip_ds:
@@ -198,6 +214,7 @@ def displace(crystal, dislocations, d_n, n_iters=3, alpha=1.0, skip_np1=False, n
             psis = []
             jacs = []
             integrals = []
+            dislocation_paths = []
             for j in range(n_prev):
                 # The integration path always ends in the reference position
                 # \hat{x}_d of the dislocation.
@@ -220,6 +237,8 @@ def displace(crystal, dislocations, d_n, n_iters=3, alpha=1.0, skip_np1=False, n
                 # The value of the line integral of Eq. (29).
                 integral = reference_p + current_u.squeeze()
                 integrals.append(integral)
+                # (1, n points, 3) -> (n points, 3); display only.
+                dislocation_paths.append(aux_d["integration_paths"][0])
                 psis.append(integral - h2d(d_state.ds[j].position))
                 jacs.append(aux_d["jacobian"])
 
@@ -416,14 +435,17 @@ def displace(crystal, dislocations, d_n, n_iters=3, alpha=1.0, skip_np1=False, n
         integration_paths=aux["integration_paths"],
         energy=aux["energies"],
         glide_planes_displaced=glide_planes_displaced,
+        dislocation_paths=dislocation_paths,
     )
 
     # Move back all the dislocations and atoms to the global coordinate system.
     # postprocess
     postprocessed_log = DisplacementLog()
-    for u, d, gs, gds, p, ip in zip(log.u_atoms, log.d_states, log.glide_planes,
-                                    log.glide_planes_displaced, log.points,
-                                    log.integration_paths):
+    for u, d, gs, gds, p, ip, dp in zip(log.u_atoms, log.d_states,
+                                        log.glide_planes,
+                                        log.glide_planes_displaced, log.points,
+                                        log.integration_paths,
+                                        log.dislocation_paths):
         u = d2h(miller.postprocess(u))
         new_gs = []
         for g in gs:
@@ -440,6 +462,12 @@ def displace(crystal, dislocations, d_n, n_iters=3, alpha=1.0, skip_np1=False, n
                 if pp is not None:
                     pp = d2h(miller.postprocess_points(pp))
                     new_points.append(pp)
+
+        # The paths ending in the reference position of a dislocation, one
+        # (n points, 3) polyline per previously inserted dislocation.
+        new_dp = None
+        if dp is not None:
+            new_dp = [d2h(miller.postprocess_points(q)) for q in dp]
 
         new_ip = []
 
@@ -463,6 +491,7 @@ def displace(crystal, dislocations, d_n, n_iters=3, alpha=1.0, skip_np1=False, n
             points=new_points,
             integration_paths=new_ip,
             glide_planes_displaced=new_gds,
+            dislocation_paths=new_dp,
         )
     postprocessed_log.convergence = convergence
 
@@ -1407,12 +1436,42 @@ def rotate_dislocation(crystal, d_state, rotated_dislocation, exclude_beta):
     F_inv = (BETA_ONES - betas)
     F = xp.linalg.inv(F_inv[0, :2, :2])
     bv = h2d(bv).squeeze()[:2]
-    bv_rotated = F.dot(bv)
     orig_norm = xp.linalg.norm(bv)
+
+    # Both the Burgers vector and the trace of the extra half-plane are carried
+    # by F, and BOTH have to be carried from their REFERENCE directions.
+    #
+    # F is the TOTAL distortion with respect to the perfect lattice, not the
+    # increment brought by the insertion at hand. Carrying a direction from the
+    # value it had after the previous insertion therefore re-applies the
+    # deformation already contained in it, and the error accumulates: b of d_3
+    # ended up 12.5 deg away from the tangent of its own glide plane after six
+    # insertions, although the Burgers vector of an edge dislocation lies along
+    # the cut by construction.
+    #
+    # `b_ref` is the reference direction, never transformed by F -- it only
+    # follows changes of the coordinate frame.
+    bref = getattr(rotated_dislocation, "b_ref", None)
+    if bref is None:
+        bref = bv
+    bref = h2d(bref).squeeze()[:2]
+
+    bv_rotated = F.dot(bref)
     # Rescale the vector to the original norm.
     new_b = bv_rotated / xp.linalg.norm(bv_rotated) * orig_norm
     new_b = h2d(new_b.tolist() + [0])
-    new_d = _set_d(rotated_dislocation, b=new_b)
+
+    # The half-plane is a MATERIAL plane, so it stays perpendicular to b only in
+    # the reference lattice: F h and F b are not perpendicular once the lattice
+    # is sheared. Drawing the tee stem as b rotated by pi/2 is therefore wrong
+    # wherever the shear is appreciable (~9 deg for d_3 of the six-dislocation
+    # example), and that remaining obliquity of the tee is real.
+    hv = xp.asarray([-bref[1], bref[0]])
+    hv_rotated = F.dot(hv)
+    new_h = hv_rotated / xp.linalg.norm(hv_rotated) * orig_norm
+    new_h = h2d(new_h.tolist() + [0])
+
+    new_d = _set_d(rotated_dislocation, b=new_b, half_plane=new_h)
     # TODO po co ten obrot tutaj?
     # global_rm = get_rotation_matrix(
     #     p=p, bv=[1.0, 0.0, 0.0],
@@ -1515,7 +1574,71 @@ def snap_to_interplanar_midheight(atoms_local, x0, y0, window=12.0):
     return y0
 
 
-def displace_glide_plane(glide_plane, atoms_local, u_atoms, n_smooth=5):
+def _cut_side(cut, points):
+    """
+    Tells, for every point, on which side of a cut it lies: +1, -1, or 0 when
+    the point is not separated by that cut at all.
+
+    A cut is a half-surface ending at the dislocation core: past that end the
+    material is continuous, so a point whose nearest place on the polyline is
+    the core vertex itself is reported as 0 and matches both sides.
+
+    :param cut: the cut polyline, (n, >=2)
+    :param points: the points to classify, (m, >=2)
+    """
+    c = d2h(cut)
+    c = c.reshape(-1, c.shape[-1])[:, :2]
+    p = d2h(points)
+    p = p.reshape(-1, p.shape[-1])[:, :2]
+
+    p0 = c[:-1]
+    seg = c[1:] - p0
+    seg_len2 = np.maximum(np.sum(seg ** 2, axis=1), 1e-12)
+    w = p[:, None, :] - p0[None, :, :]
+    t = np.sum(w * seg[None], axis=2) / seg_len2[None]
+    delta = w - np.clip(t, 0.0, 1.0)[:, :, None] * seg[None]
+    nearest = np.argmin(np.linalg.norm(delta, axis=2), axis=1)
+    rows = np.arange(len(p))
+    normal = np.stack([-seg[:, 1], seg[:, 0]], axis=1)
+    normal = normal / np.linalg.norm(normal, axis=1, keepdims=True)
+    side = np.sign(np.sum(delta[rows, nearest] * normal[nearest], axis=1))
+    # `get_glide_plane` traces the cut from the far margin towards the core, so
+    # the core is the LAST vertex; anything projecting past it is not cut.
+    beyond_core = (nearest == len(seg) - 1) & (t[:, -1] > 1.0)
+    side[beyond_core] = 0.0
+    return side
+
+
+def _smooth_within_regions(du, regions, n_smooth):
+    """
+    Moving average along a polyline, restarted at every region boundary.
+
+    `regions` holds, per vertex, the side of every cut that tears the polyline
+    (see `_cut_side`). Smoothing across such a boundary would put back exactly
+    the step that the cut-aware weighting was introduced to keep sharp.
+    """
+    if regions.size:
+        bounds = np.flatnonzero(np.any(regions[1:] != regions[:-1], axis=1)) + 1
+    else:
+        bounds = np.zeros(0, dtype=int)
+    starts = np.concatenate(([0], bounds))
+    ends = np.concatenate((bounds, [len(du)]))
+    kernel = np.ones(n_smooth) / n_smooth
+    result = du.copy()
+    for start, end in zip(starts, ends):
+        block = du[start:end]
+        if len(block) <= n_smooth:
+            continue
+        padded = np.pad(block, ((n_smooth // 2, n_smooth // 2), (0, 0)),
+                        mode="edge")
+        result[start:end] = np.stack(
+            [np.convolve(padded[:, k], kernel, mode="valid")[:len(block)]
+             for k in range(2)], axis=1)
+    return result
+
+
+def displace_glide_plane(glide_plane, atoms_local, u_atoms, sigma=2.0,
+                         n_smooth=5, other_cuts=None):
     """
     Carries the glide plane from the configuration in which it was determined
     into the configuration obtained AFTER the currently inserted dislocation is
@@ -1535,15 +1658,36 @@ def displace_glide_plane(glide_plane, atoms_local, u_atoms, n_smooth=5):
     the cut: the slip is tangent to the glide plane, so it cancels in the mean,
     and what is left is the (continuous) normal displacement.
 
-    Here that mean is evaluated from the atoms themselves: for every vertex of
-    the polyline the displacements of the nearest atom above and the nearest
-    atom below the cut are averaged. The result is smoothed along the polyline
-    with a moving average of `n_smooth` vertices, to remove the jumps occurring
-    where the nearest atom changes.
+    Here that mean is evaluated from the atoms themselves. Each side of the cut
+    contributes a Gaussian-weighted mean of the atom displacements, the weight
+    being exp(-d^2/2 sigma^2) in the distance d from the vertex to the atom.
+    `sigma` is about one nearest-neighbour distance, so the row of atoms
+    bounding the cut dominates while the weights still vary continuously as the
+    vertex advances.
+
+    Taking the single NEAREST atom on each side instead -- as this function used
+    to do -- makes the result piecewise constant: the same pair of atoms stays
+    nearest for about one atomic spacing and then switches, so the polyline
+    comes out as a staircase whose risers are plainly visible in the figures.
+    With a vertex spacing of 0.1 A the slope of such a polyline swings by ~11
+    deg, whereas the mid-lip surface of an isolated edge dislocation really
+    bends by only ~1 deg (it follows u_y ~ -b(1-2nu)/(4 pi (1-nu)) ln r).
 
     :param glide_plane: the glide plane polyline, local coordinate system
     :param atoms_local: atom coordinates before the insertion, local coordinates
     :param u_atoms: displacements of those atoms, local coordinate system
+    A glide plane is a material surface, so a cut made by ANOTHER dislocation
+    tears it: the material on the two sides of that cut slips by the Burgers
+    vector, and the glide plane inherits a step of the same size. Averaging over
+    atoms taken from both sides of such a cut spreads that step over ~sigma,
+    which is what makes it look like a smooth bend rather than a slip. Passing
+    those cuts as `other_cuts` restricts every vertex to the atoms lying on its
+    own side of each of them, and the step comes out as sharp as the vertex
+    spacing allows.
+
+    :param sigma: width [A] of the weighting kernel along the cut
+    :param other_cuts: polylines of the cuts that tear this glide plane, in the
+      same coordinate system and the same configuration as `atoms_local`
     """
     g = d2h(glide_plane)
     g = g.reshape(-1, g.shape[-1])
@@ -1570,19 +1714,36 @@ def displace_glide_plane(glide_plane, atoms_local, u_atoms, n_smooth=5):
     below = side < 0
     if not np.any(above) or not np.any(below):
         return glide_plane
-    du = np.zeros((len(g), 2))
-    d_above = np.where(above[None, :], d_vertex, np.inf)
-    d_below = np.where(below[None, :], d_vertex, np.inf)
-    i_above = np.argmin(d_above, axis=1)
-    i_below = np.argmin(d_below, axis=1)
-    du = 0.5 * (u[i_above] + u[i_below])
+    # Which atoms a vertex is allowed to average over: only those on its own
+    # side of every cut that tears this glide plane.
+    admissible = None
+    regions = np.zeros((len(g), 0))
+    if other_cuts:
+        atom_sides = np.stack([_cut_side(c, a) for c in other_cuts], axis=1)
+        regions = np.stack([_cut_side(c, g) for c in other_cuts], axis=1)
+        admissible = np.all(
+            (regions[:, None, :] == atom_sides[None, :, :])
+            | (regions[:, None, :] == 0) | (atom_sides[None, :, :] == 0),
+            axis=2)
 
-    # Moving average along the polyline.
+    def side_mean(mask):
+        base = np.exp(-0.5 * (d_vertex / sigma) ** 2) * mask[None, :]
+        w = base if admissible is None else base * admissible
+        total = np.sum(w, axis=1, keepdims=True)
+        # A vertex sitting right on another cut can be left without a single
+        # atom on its own side; there the unrestricted mean is the best
+        # available estimate.
+        starved = total[:, 0] < 1e-6 * np.maximum(np.sum(base, axis=1), 1e-30)
+        if np.any(starved):
+            w = np.where(starved[:, None], base, w)
+            total = np.sum(w, axis=1, keepdims=True)
+        return (w @ u) / np.maximum(total, 1e-30)
+
+    du = 0.5 * (side_mean(above) + side_mean(below))
+
+    # Moving average along the polyline, but never across a cut.
     if n_smooth > 1 and len(du) > n_smooth:
-        kernel = np.ones(n_smooth) / n_smooth
-        padded = np.pad(du, ((n_smooth // 2, n_smooth // 2), (0, 0)), mode="edge")
-        du = np.stack([np.convolve(padded[:, k], kernel, mode="valid")[:len(g)]
-                       for k in range(2)], axis=1)
+        du = _smooth_within_regions(du, regions, n_smooth)
 
     result = g.copy()
     result[:, :2] = g[:, :2] + du

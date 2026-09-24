@@ -59,10 +59,18 @@ class MillerIndices:
     def preprocess_dislocation(self, d):
         new_position = self.preprocess(xp.asarray(d.position))
         new_b = self.preprocess_vector(xp.asarray(d.b))
+        extra = {}
+        if getattr(d, "half_plane", None) is not None:
+            extra["half_plane"] = self.preprocess_vector(
+                xp.asarray(d.half_plane)).squeeze()
+        if getattr(d, "b_ref", None) is not None:
+            extra["b_ref"] = self.preprocess_vector(
+                xp.asarray(d.b_ref)).squeeze()
         return dataclasses.replace(
             d,
             position=new_position.squeeze(),
-            b=new_b.squeeze()
+            b=new_b.squeeze(),
+            **extra
         )
 
     def preprocess_vector(self, v):
@@ -80,10 +88,19 @@ class MillerIndices:
         new_position = self.postprocess_points(
             x=xp.asarray(dislocation.position).reshape(1, -1)
         )
+        extra = {}
+        if getattr(dislocation, "half_plane", None) is not None:
+            # a direction -- rotated back like b, not translated like a point
+            extra["half_plane"] = d2h(self.postprocess(
+                u=xp.asarray(dislocation.half_plane).reshape(1, -1))).squeeze()
+        if getattr(dislocation, "b_ref", None) is not None:
+            extra["b_ref"] = d2h(self.postprocess(
+                u=xp.asarray(dislocation.b_ref).reshape(1, -1))).squeeze()
         return dataclasses.replace(
             dislocation,
             position=d2h(new_position).squeeze(),
-            b=d2h(new_b).squeeze()
+            b=d2h(new_b).squeeze(),
+            **extra
         )
 
 
