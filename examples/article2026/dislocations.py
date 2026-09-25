@@ -1103,6 +1103,34 @@ def calculate_rotation_matrix_for_vector(v):
     return rotmatrix
 
 
+# Eq. (35) of the paper: the elemental lattice distortion field of a
+# dislocation is not merely rotated into the perfect-lattice frame, it is also
+# carried forward by the deformation the OTHER dislocations have already
+# imposed at its core,
+#
+#     beta_d(x) = F [R_d beta(x') R_d^T] F^T / det F,   x' = R_d^T (x - x_d)
+#
+# with F = F_SigmaN(x_d) of Appendix D, i.e. the total distortion at the core of
+# d with its own elemental field excluded. F is a constant per dislocation, not
+# a field, so the push-forward costs one 2x2 congruence per elemental field.
+#
+# Set to False to recover beta_d(x) = R_d beta(x') R_d^T, the rotation-only form
+# the code used before, for comparison.
+USE_EQ35_PUSH_FORWARD = True
+
+
+def _push_forward(betas, F_sigma):
+    """
+    The F [...] F^T / det F of Eq. (35), applied to a stack of (n, 2, 2)
+    elemental distortions. `F_sigma` None (a lone dislocation) means identity.
+    """
+    if not USE_EQ35_PUSH_FORWARD or F_sigma is None:
+        return betas
+    F = xp.asarray(F_sigma)[:2, :2]
+    det = xp.linalg.det(F)
+    return (F.reshape(1, 2, 2) @ betas @ F.T.reshape(1, 2, 2)) / det
+
+
 def beta_sigma(points: xp.ndarray, crystal, d_state: DislocationsState,
                exclude_beta: Optional[Set] = None,
                return_beta: Optional[int] = None, return_all_beta: bool = False, debug=False):
@@ -1178,7 +1206,9 @@ def beta_rotated(crystal, d, points, rotation_matrix, dis_tolerance=DIS_TOLERANC
     rm = rotation_matrix[:2, :2].reshape(1, 2, 2)
     # KLUCZOWA INSTRUKCJA
     betas = rm @ betas @ rm.transpose((0, 2, 1))
-    return betas
+    # Eq. (35): carry the elemental field forward by the deformation the other
+    # dislocations have already imposed at this one's core.
+    return _push_forward(betas, getattr(d, "F_sigma", None))
 
 
 def beta(x, be, bz):
@@ -1333,8 +1363,11 @@ def dbeta_rotated(crystal, d, points, rotation_matrix):
     d beta_{ij}/d x_k of a single dislocation `d`, expressed in the coordinate
     system in which `points` are given (cf. `beta_rotated`).
 
-    beta_d(x) = R beta(R^T (x - x_d)) R^T, hence
-    d beta_d,ij / d x_k = R_ia R_jb R_kc  d beta_ab / d x'_c.
+    beta_d(x) = F [R beta(R^T (x - x_d)) R^T] F^T / det F, Eq. (35), hence
+    d beta_d,ij / d x_k = F_ia F_jb R_ap R_bq R_kc d beta_pq / d x'_c / det F.
+
+    F is constant over x, so it only multiplies the i, j indices -- the spatial
+    index k is untouched.
 
     :return: (n points, 2, 2, 2), where [:, i, j, k] = d beta_{ij}/d x_k
     """
@@ -1346,7 +1379,12 @@ def dbeta_rotated(crystal, d, points, rotation_matrix):
     points = rotation_matrix.T.dot(points.T).T
     dbetas = dbeta(points, be=be, bz=bz)[:, :2, :2, :]  # (n, 2, 2, 2)
     rm = rotation_matrix[:2, :2]
-    return xp.einsum("ia,jb,kc,nabc->nijk", rm, rm, rm, dbetas)
+    dbetas = xp.einsum("ia,jb,kc,nabc->nijk", rm, rm, rm, dbetas)
+    F_sigma = getattr(d, "F_sigma", None)
+    if not USE_EQ35_PUSH_FORWARD or F_sigma is None:
+        return dbetas
+    F = xp.asarray(F_sigma)[:2, :2]
+    return xp.einsum("ia,jb,nabk->nijk", F, F, dbetas) / xp.linalg.det(F)
 
 
 def dbeta_sigma_single(points, crystal, d_state: DislocationsState,
@@ -1471,7 +1509,11 @@ def rotate_dislocation(crystal, d_state, rotated_dislocation, exclude_beta):
     new_h = hv_rotated / xp.linalg.norm(hv_rotated) * orig_norm
     new_h = h2d(new_h.tolist() + [0])
 
-    new_d = _set_d(rotated_dislocation, b=new_b, half_plane=new_h)
+    # F_SigmaN(x_d) of Appendix D -- the very tensor computed above. Eq. (35)
+    # needs it when this dislocation's elemental field is evaluated, so it
+    # travels with the dislocation (cf. `half_plane`).
+    new_d = _set_d(rotated_dislocation, b=new_b, half_plane=new_h,
+                   F_sigma=d2h(F))
     # TODO po co ten obrot tutaj?
     # global_rm = get_rotation_matrix(
     #     p=p, bv=[1.0, 0.0, 0.0],

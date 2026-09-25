@@ -203,6 +203,28 @@ dislocations = [
         color=DISLOCATION_COLORS[5]
     )
 ]
+# How far the cut is traced from the core [A]. `get_glide_plane` integrates the
+# ODE over t_span = (0, -glide_plane_margin) in the local frame of the
+# dislocation, so this is a hard end to the curve: with the default 35 the cut
+# ended a few A inside the crystal, and both the drawn line and the tear in the
+# lattice stopped there in mid-air.
+#
+# It is not only a drawing matter. The curve is what
+# get_integration_path_via_energy splits the lattice graph along; an atom whose
+# x falls outside the traced range gets its side from a straight line through
+# the core instead. So the cut has to reach past the crystal, and the value is
+# derived rather than guessed: the distance from the farthest core to the
+# farthest corner of the crystal, plus a margin. clip_glide_plane trims
+# whatever overshoots the atoms when drawing.
+_atoms_xy = np.asarray(l0.coordinates, dtype=float)[:, :2]
+_corners = np.asarray([[x, y]
+                       for x in (_atoms_xy[:, 0].min(), _atoms_xy[:, 0].max())
+                       for y in (_atoms_xy[:, 1].min(), _atoms_xy[:, 1].max())])
+glide_plane_margin = 5.0 + max(
+    np.linalg.norm(_corners - np.asarray(d.position, dtype=float)[:2], axis=1).max()
+    for d in dislocations)
+print(f"Glide plane traced over {glide_plane_margin:.1f} A from each core")
+
 # Numbers of the dislocations for which the (interactive, and quite expensive)
 # diagnostic plots of the beta field and the glide planes should be displayed,
 # e.g. {5}. Empty set = batch run.
@@ -262,6 +284,7 @@ def main(params):
             d_n=d,
             n_iters=n_iters,
             n_points=n_points,
+            glide_plane_margin=glide_plane_margin,
             method=method,
             alpha=alpha,
             tol=tol,

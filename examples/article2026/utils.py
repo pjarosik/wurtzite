@@ -66,6 +66,11 @@ class MillerIndices:
         if getattr(d, "b_ref", None) is not None:
             extra["b_ref"] = self.preprocess_vector(
                 xp.asarray(d.b_ref)).squeeze()
+        # F_sigma is a rank-2 tensor, so it follows a change of frame as
+        # R F R^T rather than as a vector.
+        if getattr(d, "F_sigma", None) is not None:
+            r = self.rt[:2, :2]
+            extra["F_sigma"] = r.dot(xp.asarray(d.F_sigma)).dot(r.T)
         return dataclasses.replace(
             d,
             position=new_position.squeeze(),
@@ -96,6 +101,12 @@ class MillerIndices:
         if getattr(dislocation, "b_ref", None) is not None:
             extra["b_ref"] = d2h(self.postprocess(
                 u=xp.asarray(dislocation.b_ref).reshape(1, -1))).squeeze()
+        # cf. preprocess_dislocation: a rank-2 tensor, carried back as
+        # R^T F R.
+        if getattr(dislocation, "F_sigma", None) is not None:
+            r = self.rt_inv[:2, :2]
+            extra["F_sigma"] = d2h(
+                r.dot(xp.asarray(dislocation.F_sigma)).dot(r.T))
         return dataclasses.replace(
             dislocation,
             position=d2h(new_position).squeeze(),
